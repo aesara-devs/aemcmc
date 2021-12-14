@@ -31,9 +31,9 @@ jobs:
         with:
           filters: |
             python: &python
-            - 'aesara_repo/**/*.py'
+            - 'aemcmc/**/*.py'
             - 'tests/**/*.py'
-            - 'aesara_repo/**/*.pyx'
+            - 'aemcmc/**/*.pyx'
             - 'tests/**/*.pyx'
             - '*.py'
             src:

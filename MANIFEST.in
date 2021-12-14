@@ -1,2 +1,2 @@
 include versioneer.py
-include aesara_repo/_version.py
+include aemcmc/_version.py

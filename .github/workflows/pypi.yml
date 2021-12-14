@@ -35,8 +35,8 @@ jobs:
           mkdir -p test-sdist
           cd test-sdist
           python -m venv venv-sdist
-          venv-sdist/bin/python -m pip install ../dist/aesara_repo-*.tar.gz
-          venv-sdist/bin/python -c "import aesara_repo;print(aesara_repo.__version__)"
+          venv-sdist/bin/python -m pip install ../dist/aemcmc-*.tar.gz
+          venv-sdist/bin/python -c "import aemcmc;print(aemcmc.__version__)"
       - uses: actions/upload-artifact@v2
         with:
           name: artifact

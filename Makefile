@@ -1,8 +1,8 @@
 .PHONY: help venv conda docker docstyle format style black test lint check coverage pypi
 .DEFAULT_GOAL = help
 
-PROJECT_NAME = aesara_repo
-PROJECT_DIR = aesara_repo
+PROJECT_NAME = aemcmc
+PROJECT_DIR = aemcmc
 PYTHON = python
 PIP = pip
 CONDA = conda

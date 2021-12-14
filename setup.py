@@ -6,19 +6,19 @@ from setuptools import setup
 import versioneer
 
 setup(
-    name="aesara_repo",
+    name="aemcmc",
     version=versioneer.get_version(),
     cmdclass=versioneer.get_cmdclass(),
-    description="PPL tools for Aesara",
-    url="http://github.com/aesara-devs/aesara_repo",
+    description="Miscellaneous MCMC samplers written in Aesara",
+    url="http://github.com/aesara-devs/aemcmc",
     maintainer="Brandon T. Willard",
     maintainer_email="aesara-devs@gmail.com",
-    packages=["aesara_repo"],
+    packages=["aemcmc"],
     install_requires=[
         "numpy>=1.18.1",
         "scipy>=1.4.0",
-        "numba",
         "aesara",
+        "aeppl",
     ],
     tests_require=["pytest"],
     long_description=open("README.md").read() if exists("README.md") else "",
