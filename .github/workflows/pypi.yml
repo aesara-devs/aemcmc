@@ -1,0 +1,58 @@
+name: PyPI
+on:
+  push:
+    branches:
+      - main
+      - auto-release
+  pull_request:
+    branches: [main]
+  release:
+    types: [published]
+
+# Cancels all previous workflow runs for pull requests that have not completed.
+concurrency:
+  # The concurrency group contains the workflow name and the branch name for pull requests
+  # or the commit hash for any other events.
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.head_ref || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build source distribution
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v2
+        with:
+          python-version: "3.8"
+      - name: Build the sdist
+        run: |
+          python setup.py sdist
+      - name: Check the sdist installs and imports
+        run: |
+          mkdir -p test-sdist
+          cd test-sdist
+          python -m venv venv-sdist
+          venv-sdist/bin/python -m pip install ../dist/aesara_repo-*.tar.gz
+          venv-sdist/bin/python -c "import aesara_repo;print(aesara_repo.__version__)"
+      - uses: actions/upload-artifact@v2
+        with:
+          name: artifact
+          path: dist/*
+
+  upload_pypi:
+    name: Upload to PyPI on release
+    needs: [build]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release' && github.event.action == 'published'
+    steps:
+      - uses: actions/download-artifact@v2
+        with:
+          name: artifact
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@master
+        with:
+          user: __token__
+          password: ${{ secrets.pypi_secret }}

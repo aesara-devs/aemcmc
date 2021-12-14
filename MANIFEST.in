@@ -1,0 +1,2 @@
+include versioneer.py
+include aesara_repo/_version.py
