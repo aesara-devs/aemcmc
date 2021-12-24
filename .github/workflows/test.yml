@@ -38,9 +38,9 @@ jobs:
             - '*.py'
             src:
             - *python
-            - 'aesara_repo/**/*.c'
+            - 'aemcmc/**/*.c'
             - 'tests/**/*.c'
-            - 'aesara_repo/**/*.h'
+            - 'aemcmc/**/*.h'
             - 'tests/**/*.h'
             - '.github/workflows/*.yml'
             - 'setup.cfg'
@@ -112,7 +112,7 @@ jobs:
           if [[ $FAST_COMPILE == "1" ]]; then export AESARA_FLAGS=$AESARA_FLAGS,mode=FAST_COMPILE; fi
           if [[ $FLOAT32 == "1" ]]; then export AESARA_FLAGS=$AESARA_FLAGS,floatX=float32; fi
           export AESARA_FLAGS=$AESARA_FLAGS,warn__ignore_bug_before=all,on_opt_error=raise,on_shape_error=raise,gcc__cxxflags=-pipe
-          python -m pytest -x -r A --verbose --cov=aesara/ --cov-report=xml:coverage/coverage-${MATRIX_ID}.xml --no-cov-on-fail $PART
+          python -m pytest -x -r A --verbose --cov=aemcmc/ --cov-report=xml:coverage/coverage-${MATRIX_ID}.xml --no-cov-on-fail $PART
         env:
           MATRIX_ID: ${{ steps.matrix-id.outputs.id }}
           MKL_THREADING_LAYER: GNU
