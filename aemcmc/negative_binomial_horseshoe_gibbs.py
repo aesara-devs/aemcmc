@@ -146,9 +146,9 @@ def horseshoe_nbinom_gibbs(
     sigma2 = at.constant(1, "sigma2")
 
     # set the initial value of the intercept term to a random uniform value.
-    beta0 = at.empty_like(tau2)
-    beta0.name = "intercept"
+    # TODO: Set the prior value of the intercept outside of the function
     beta0 = srng.uniform(-10, 10)
+    beta0.name = "intercept"
 
     def step_fn(
         beta0: TensorVariable,
