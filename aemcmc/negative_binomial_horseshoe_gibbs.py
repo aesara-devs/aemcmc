@@ -32,8 +32,47 @@ def update_beta(rng, omega, lambda2tau2_inv, X, z):
     )
 
 
-# NOTE: invGamma(1, a) === 1 / Exp(a), where a is the scale/mean of the exponential
 def horseshoe_step(srng, beta, sigma2, lambda2_inv, tau2_inv):
+    r"""Gibbs kernel to sample from the posterior distribution of a horsehoe prior.
+
+    This kernel generates samples from the posterior distribution of the local
+    and global shrinkage parameters of a horsehoe prior, respectively :math:`\lambda`
+    and :math:`\tau` in the following model:
+
+    .. math::
+
+        \begin{align*}
+            \beta_j &\sim \operatorname{Normal}(0, \lambda_j^2\;\tau^2\;\sigma^2)\\
+            \sigma^2 &\sim \sigma^{-2} \mathrm{d} \sigma\\
+            \lambda_j^2 &\sim \operatorname{HalfCauchy}(0, 1)\\
+            \tau &\sim \operatorname{HalfCauchy}(0, 1)
+        \end{align*}
+
+    We use the following observations [1]_ to sample from the posterior
+    conditional probability of :math:`\tau^{-2}` and :math:`\lambda^{-2}`:
+
+    1. The half-Cauchy distribution can be intepreted as a mixture of inverse-gamma
+    distributions;
+    2. If :math:` Y \sim InverseGamma(1, a)`, :math:`Y \sim 1 / \operatorname{Exp}(a)`.
+
+    Parameters
+    ----------
+    srng
+        The random number generating object to be used during sampling.
+    beta
+        Regression coefficients.
+    sigma2
+        Variance of the regression coefficients.
+    lambda2_inv
+        Square inverse of the local shrinkage parameters.
+    tau2_inv
+        Square inverse of the global shrinkage parameters.
+
+    References
+    ----------
+    ..[1] Makalic, Enes & Schmidt, Daniel. (2016). High-Dimensional Bayesian
+          Regularised Regression with the BayesReg Package.
+    """
     upsilon_inv = srng.exponential(1 + lambda2_inv)
     zeta_inv = srng.exponential(1 + tau2_inv)
 
