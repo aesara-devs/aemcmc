@@ -94,7 +94,7 @@ def horseshoe_step(
     return lambda2_inv_new, tau2_inv_new
 
 
-def horseshoe_nbinom_gibbs(
+def horseshoe_nbinom(
     srng: at.random.RandomStream,
     X: TensorVariable,
     y: TensorVariable,
@@ -267,6 +267,160 @@ def horseshoe_nbinom_gibbs(
         step_fn,
         outputs_info=[beta0, beta, 1 / lambda2, 1 / tau2],
         non_sequences=[sigma2, X, y, h],
+        n_steps=n_samples,
+        strict=True,
+    )
+    return outputs, updates
+
+
+def horseshoe_logistic(
+    srng: RandomStream,
+    X: TensorVariable,
+    y: TensorVariable,
+    beta_init: TensorVariable,
+    local_shrinkage_init: TensorVariable,
+    global_shrinkage_init: TensorVariable,
+    n_samples: TensorVariable,
+) -> Tuple[List[Variable], Dict]:
+    r"""
+
+    Build a symbolic graph that describes the gibbs sampler of the binary
+    logistic regression with a Horseshoe prior on the regression coefficients.
+
+    The implementation follows the sampler described in [1]. It is designed to
+    sample efficiently from the following binary logistic regression model:
+
+    .. math::
+
+        \begin{align*}
+            y_i &\sim \operatorname{Benoulli}\left(\pi_i\right)\\
+            \pi &= \frac{1}{1 + \exp\left(-(\beta_0 + x_i^T\,\beta)\right)}\\
+            \beta_j &\sim \operatorname{Normal}(0, \lambda_j^2\;\tau^2\;\sigma^2)\\
+            \sigma^2 &\sim \sigma^{-2} \mathrm{d} \sigma\\
+            \lambda_j^2 &\sim \operatorname{HalfCauchy}(0, 1)\\
+            \tau &\sim \operatorname{HalfCauchy}(0, 1)
+        \end{align*}
+
+    Parameters
+    ----------
+    srng: symbolic random number generator
+        The random number generating object to be used during sampling.
+    X: TensorVariable
+        The covariate matrix.
+    y: TensorVariable
+        The observed count data.
+    beta_init: TensorVariable
+        A tensor describing the starting values of the posterior samples of
+        the regression coefficients.
+    local_shrinkage_init: TensorVariable
+        A tensor describing the starting values of the local shrinkage
+        parameter of the horseshoe prior.
+    global_shrinkage_init: TensorVariable
+        A tensor describing the starting values of the global shrinkage
+        parameter of the horseshoe prior.
+    n_samples: TensorVariable
+        A tensor describing the number of posterior samples to generate.
+
+    Returns
+    -------
+    (outputs, updates): tuple
+        A symbolic sescription of the sampling result to be used when
+        compiling a function to be used for sampling.
+
+    References
+    ----------
+    ..[1] Makalic, Enes & Schmidt, Daniel. (2015). A Simple Sampler for the
+          Horseshoe Estimator. 10.1109/LSP.2015.2503725.
+    ..[2] Makalic, Enes & Schmidt, Daniel. (2016). High-Dimensional Bayesian
+          Regularised Regression with the BayesReg Package.
+
+    """
+
+    beta = at.as_tensor_variable(beta_init, "beta", dtype=aesara.config.floatX)
+    if beta.ndim != 1:
+        raise ValueError(
+            "`beta_init` must be a vector whose length is equal to the "
+            "number of columns in the covariate matrix"
+        )
+
+    lambda2 = at.as_tensor_variable(
+        local_shrinkage_init, name="lambda2", dtype=aesara.config.floatX
+    )
+    if lambda2.ndim != 1:
+        raise ValueError(
+            "The local shrinkage initial value must be a vector whose size "
+            "is equal to the number of columns in the covariate matrix"
+        )
+
+    tau2 = at.as_tensor_variable(
+        global_shrinkage_init, name="tau2", dtype=aesara.config.floatX
+    )
+    if tau2.ndim != 0:
+        raise ValueError("The global shrinkage initial value must be a scalar")
+
+    n_samples = at.as_tensor_variable(n_samples, name="n_samples", dtype=int)
+    if n_samples.ndim != 0:
+        raise ValueError("The number of samples should be an integer scalar")
+
+    # sigma2 must be set to 1 during sampling for this sampler and the negative
+    # binomial regression version. It is only required if the data is modelled
+    # using linear regression.
+    sigma2 = at.constant(1, "sigma2")
+
+    # set the initial value of the intercept term to a random uniform value.
+    # TODO: Set the prior value of the intercept outside of the function
+    beta0 = srng.uniform(-10, 10)
+    beta0.name = "intercept"
+
+    def step_fn(
+        beta0: TensorVariable,
+        beta: TensorVariable,
+        lambda2_inv: TensorVariable,
+        tau2_inv: TensorVariable,
+        sigma2: TensorVariable,
+        X: TensorVariable,
+        y: TensorVariable,
+    ) -> Tuple[TensorVariable, TensorVariable, TensorVariable, TensorVariable]:
+        """
+        Complete one full update of the gibbs sampler and return the new state
+        of the posterior conditional parameters.
+
+        Parameters
+        ----------
+        beta0: TensorVariable
+            The intercept coefficient of the regression model.
+        beta: Tensorvariable
+            Coefficients (other than intercept) of the regression model.
+        lambda2_inv
+            Square inverse of the local shrinkage parameter of the horseshoe prior.
+        tau2_inv
+            Square inverse of the global shrinkage parameters of the horseshoe prior.
+        X: TensorVariable
+            The covariate matrix.
+        y: TensorVariable
+            The observed binary data
+        """
+
+        xb = X @ beta
+        w = srng.gen(polyagamma, 1, beta0 + xb)
+
+        z = (y - 0.5) / w
+        beta0_var = 1 / w.sum()
+        beta0_mean = beta0_var * (w @ (z - xb))
+        beta0_new = srng.normal(beta0_mean, at.sqrt(beta0_var))
+
+        beta_new = update_beta(srng, w, lambda2_inv * tau2_inv, X, z - beta0_new)
+
+        lambda2_inv_new, tau2_inv_new = horseshoe_step(
+            srng, beta_new, sigma2, lambda2_inv, tau2_inv
+        )
+
+        return beta0_new, beta_new, lambda2_inv_new, tau2_inv_new
+
+    outputs, updates = aesara.scan(
+        step_fn,
+        outputs_info=[beta0, beta, 1 / lambda2, 1 / tau2],
+        non_sequences=[sigma2, X, y],
         n_steps=n_samples,
         strict=True,
     )
