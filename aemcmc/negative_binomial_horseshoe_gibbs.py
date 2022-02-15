@@ -3,6 +3,7 @@ from typing import Dict, List, Tuple
 import aesara
 import aesara.tensor as at
 from aesara.ifelse import ifelse
+from aesara.tensor.random import RandomStream
 from aesara.tensor.var import TensorVariable, Variable
 
 from aemcmc.dists import (
@@ -34,7 +35,13 @@ def update_beta(rng, omega, lambda2tau2_inv, X, z):
     )
 
 
-def horseshoe_step(srng, beta, sigma2, lambda2_inv, tau2_inv):
+def horseshoe_step(
+    srng: RandomStream,
+    beta: TensorVariable,
+    sigma2: TensorVariable,
+    lambda2_inv: TensorVariable,
+    tau2_inv: TensorVariable,
+) -> Tuple[TensorVariable, TensorVariable]:
     r"""Gibbs kernel to sample from the posterior distribution of a horsehoe prior.
 
     This kernel generates samples from the posterior distribution of the local
@@ -46,7 +53,7 @@ def horseshoe_step(srng, beta, sigma2, lambda2_inv, tau2_inv):
         \begin{align*}
             \beta_j &\sim \operatorname{Normal}(0, \lambda_j^2\;\tau^2\;\sigma^2)\\
             \sigma^2 &\sim \sigma^{-2} \mathrm{d} \sigma\\
-            \lambda_j &\sim \operatorname{HalfCauchy}(0, 1)\\
+            \lambda_j^2 &\sim \operatorname{HalfCauchy}(0, 1)\\
             \tau &\sim \operatorname{HalfCauchy}(0, 1)
         \end{align*}
 
