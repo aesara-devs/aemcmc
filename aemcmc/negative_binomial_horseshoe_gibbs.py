@@ -53,7 +53,7 @@ def horseshoe_step(
         \begin{align*}
             \beta_j &\sim \operatorname{Normal}(0, \lambda_j^2\;\tau^2\;\sigma^2)\\
             \sigma^2 &\sim \sigma^{-2} \mathrm{d} \sigma\\
-            \lambda_j^2 &\sim \operatorname{HalfCauchy}(0, 1)\\
+            \lambda_j &\sim \operatorname{HalfCauchy}(0, 1)\\
             \tau &\sim \operatorname{HalfCauchy}(0, 1)
         \end{align*}
 
@@ -222,7 +222,7 @@ def horseshoe_nbinom_gibbs(
         X: TensorVariable,
         y: TensorVariable,
         h: TensorVariable,
-    ):
+    ) -> Tuple[TensorVariable, TensorVariable, TensorVariable, TensorVariable]:
         """
         Complete one full update of the gibbs sampler and return the new state
         of the posterior conditional parameters.
