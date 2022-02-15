@@ -82,7 +82,7 @@ def horseshoe_step(srng, beta, sigma2, lambda2_inv, tau2_inv):
         0.5 * (beta.shape[0] + 1),
         zeta_inv + 0.5 * (beta2 * lambda2_inv_new).sum() / sigma2,
     )
-    return lambda2_inv_new, tau2_inv_new, upsilon_inv, zeta_inv
+    return lambda2_inv_new, tau2_inv_new
 
 
 def horseshoe_nbinom_gibbs(
@@ -213,7 +213,7 @@ def horseshoe_nbinom_gibbs(
 
         beta_new = update_beta(srng, w, lambda2_inv * tau2_inv, X, z - beta0_new)
 
-        lambda2_inv_new, tau2_inv_new, _, _ = horseshoe_step(
+        lambda2_inv_new, tau2_inv_new = horseshoe_step(
             srng, beta_new, sigma2, lambda2_inv, tau2_inv
         )
 
