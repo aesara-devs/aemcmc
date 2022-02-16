@@ -1,3 +1,5 @@
+from typing import Callable
+
 import aesara
 import aesara.tensor as at
 from aesara.ifelse import ifelse
@@ -32,8 +34,47 @@ def update_beta(rng, omega, lambda2tau2_inv, X, z):
     )
 
 
-# NOTE: invGamma(1, a) === 1 / Exp(a), where a is the scale/mean of the exponential
 def horseshoe_step(srng, beta, sigma2, lambda2_inv, tau2_inv):
+    r"""Gibbs kernel to sample from the posterior distribution of a horsehoe prior.
+
+    This kernel generates samples from the posterior distribution of the local
+    and global shrinkage parameters of a horsehoe prior, respectively :math:`\lambda`
+    and :math:`\tau` in the following model:
+
+    .. math::
+
+        \begin{align*}
+            \beta_j &\sim \operatorname{Normal}(0, \lambda_j^2\;\tau^2\;\sigma^2)\\
+            \sigma^2 &\sim \sigma^{-2} \mathrm{d} \sigma\\
+            \lambda_j &\sim \operatorname{HalfCauchy}(0, 1)\\
+            \tau &\sim \operatorname{HalfCauchy}(0, 1)
+        \end{align*}
+
+    We use the following observations [1]_ to sample from the posterior
+    conditional probability of :math:`\tau^{-2}` and :math:`\lambda^{-2}`:
+
+    1. The half-Cauchy distribution can be intepreted as a mixture of inverse-gamma
+    distributions;
+    2. If :math:` Y \sim InverseGamma(1, a)`, :math:`Y \sim 1 / \operatorname{Exp}(a)`.
+
+    Parameters
+    ----------
+    srng
+        The random number generating object to be used during sampling.
+    beta
+        Regression coefficients.
+    sigma2
+        Variance of the regression coefficients.
+    lambda2_inv
+        Square inverse of the local shrinkage parameters.
+    tau2_inv
+        Square inverse of the global shrinkage parameters.
+
+    References
+    ----------
+    ..[1] Makalic, Enes & Schmidt, Daniel. (2016). High-Dimensional Bayesian
+          Regularised Regression with the BayesReg Package.
+    """
     upsilon_inv = srng.exponential(1 + lambda2_inv)
     zeta_inv = srng.exponential(1 + tau2_inv)
 
@@ -43,7 +84,7 @@ def horseshoe_step(srng, beta, sigma2, lambda2_inv, tau2_inv):
         0.5 * (beta.shape[0] + 1),
         zeta_inv + 0.5 * (beta2 * lambda2_inv_new).sum() / sigma2,
     )
-    return lambda2_inv_new, tau2_inv_new, upsilon_inv, zeta_inv
+    return lambda2_inv_new, tau2_inv_new
 
 
 def horseshoe_nbinom_gibbs(
@@ -55,12 +96,27 @@ def horseshoe_nbinom_gibbs(
     local_shrinkage_init: TensorVariable,
     global_shrinkage_init: TensorVariable,
     n_samples: TensorVariable,
-):
+) -> Callable:
     r"""
-    Compose a symbolic graph that describes the gibbs sampler of the negative
+    Build a symbolic graph that describes the gibbs sampler of the negative
     binomial regression with a HorseShoe prior on the regression coefficients.
 
-    The implemenation follows the sampler desribed in [1].
+    The implementation follows the sampler described in [1]. It is designed to
+    sample efficiently from the following negative binomial regression model:
+
+    .. math::
+
+        \begin{align*}
+            y_i &\sim \operatorname{NegativeBinomial}\left(\pi_i, h\right)\\
+            h &\sim \pi_h(h) \mathrm{d}h\\
+            \pi_i &= \frac{\exp(\psi_i)}{1 + \exp(\psi_i)}\\
+            \psi_i &= x^T \beta\\
+            \beta_j &\sim \operatorname{Normal}(0, \lambda_j^2\;\tau^2\;\sigma^2)\\
+            \sigma^2 &\sim \sigma^{-2} \mathrm{d} \sigma\\
+            \lambda_j &\sim \operatorname{HalfCauchy}(0, 1)\\
+            \tau &\sim \operatorname{HalfCauchy}(0, 1)
+        \end{align*}
+
 
     Parameters
     ----------
@@ -146,9 +202,9 @@ def horseshoe_nbinom_gibbs(
     sigma2 = at.constant(1, "sigma2")
 
     # set the initial value of the intercept term to a random uniform value.
-    beta0 = at.empty_like(tau2)
-    beta0.name = "intercept"
+    # TODO: Set the prior value of the intercept outside of the function
     beta0 = srng.uniform(-10, 10)
+    beta0.name = "intercept"
 
     def step_fn(
         beta0: TensorVariable,
@@ -163,6 +219,26 @@ def horseshoe_nbinom_gibbs(
         """
         Complete one full update of the gibbs sampler and return the new state
         of the posterior conditional parameters.
+
+        Parameters
+        ----------
+        beta0: TensorVariable
+            The intercept coefficient of the regression model.
+        beta: Tensorvariable
+            Coefficients (other than intercept) of the regression model.
+        lambda2_inv
+            Square inverse of the local shrinkage parameter of the horseshoe prior.
+        tau2_inv
+            Square inverse of the global shrinkage parameters of the horseshoe prior.
+        sigma2
+            Variance of the regression coefficients.
+        X: TensorVariable
+            The covariate matrix.
+        y: TensorVariable
+            The observed count data.
+        h: TensorVariable
+            The "number of successes" parameter of the negative binomial disribution
+            used to model the data.
         """
         xb = X @ beta
         w = srng.gen(polyagamma, y + h, beta0 + xb)
@@ -174,7 +250,7 @@ def horseshoe_nbinom_gibbs(
 
         beta_new = update_beta(srng, w, lambda2_inv * tau2_inv, X, z - beta0_new)
 
-        lambda2_inv_new, tau2_inv_new, _, _ = horseshoe_step(
+        lambda2_inv_new, tau2_inv_new = horseshoe_step(
             srng, beta_new, sigma2, lambda2_inv, tau2_inv
         )
 
