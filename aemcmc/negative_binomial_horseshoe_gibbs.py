@@ -1,9 +1,9 @@
-from typing import Callable
+from typing import Dict, List, Tuple
 
 import aesara
 import aesara.tensor as at
 from aesara.ifelse import ifelse
-from aesara.tensor.var import TensorVariable
+from aesara.tensor.var import TensorVariable, Variable
 
 from aemcmc.dists import (
     multivariate_normal_cong2017,
@@ -96,7 +96,7 @@ def horseshoe_nbinom_gibbs(
     local_shrinkage_init: TensorVariable,
     global_shrinkage_init: TensorVariable,
     n_samples: TensorVariable,
-) -> Callable:
+) -> Tuple[List[Variable], Dict]:
     r"""
     Build a symbolic graph that describes the gibbs sampler of the negative
     binomial regression with a HorseShoe prior on the regression coefficients.
