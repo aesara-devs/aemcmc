@@ -74,14 +74,14 @@ def multivariate_normal_cong2017(rng, A, omega, phi, t):
     y1 = at.sqrt(A_inv) * z[:a_rows]
     y2 = (1 / at.sqrt(omega)) * z[a_rows:]
     Ainv_phi = A_inv[:, None] * phi.T
-    B = phi @ Ainv_phi
+    B = at.dot(phi, Ainv_phi)
     indices = at.arange(B.shape[0])
     B = at.subtensor.set_subtensor(
         B[indices, indices],
         at.diag(B) + 1.0 / omega,
     )
-    alpha = at.linalg.solve(B, t - phi @ y1 - y2, assume_a="pos")
-    return y1 + Ainv_phi @ alpha
+    alpha = at.linalg.solve(B, t - at.dot(phi, y1) - y2, assume_a="pos")
+    return y1 + at.dot(Ainv_phi, alpha)
 
 
 def multivariate_normal_bhattacharya2016(rng, D, phi, alpha):
@@ -100,13 +100,13 @@ def multivariate_normal_bhattacharya2016(rng, D, phi, alpha):
           regression.” Biometrika, 103(4): 985.033
     """
     D_phi = D[:, None] * phi.T
-    B = phi @ D_phi
+    B = at.dot(phi, D_phi)
     indices = at.arange(B.shape[0])
     B = at.subtensor.set_subtensor(
         B[indices, indices],
         at.diag(B) + 1.0,
     )
     u = rng.normal(0, at.sqrt(D))
-    v = phi @ u + rng.standard_normal(size=phi.shape[0])
+    v = at.dot(phi, u) + rng.standard_normal(size=phi.shape[0])
     w = at.linalg.solve(B, alpha - v, assume_a="pos")
-    return u + D_phi @ w
+    return u + at.dot(D_phi, w)

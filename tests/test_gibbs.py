@@ -2,10 +2,46 @@ import aesara
 import aesara.tensor as at
 import numpy as np
 import pytest
+import scipy
 from aesara.tensor.random.utils import RandomStream
 from scipy.linalg import toeplitz
 
 from aemcmc.gibbs import horseshoe_logistic, horseshoe_nbinom
+
+
+def test_horsehoenbinom_sparse():
+    """Make sure that the sample for the Negative Binomial with a horseshoe prior works with sparse matrices"""
+    p = 10
+    srng = RandomStream(seed=12345)
+
+    X = scipy.sparse.random(p, p, format="csr")
+    X_csr = aesara.sparse.as_sparse(X)
+
+    # X = np.random.random((p, p))
+    # X_csr = at.as_tensor(X)
+
+    y = np.ones(p)
+    y_tt = at.as_tensor(y)
+
+    h_tt = 100
+
+    beta_init, lambda2_init, tau2_init, n_samples = (
+        at.vector("beta_init"),
+        at.vector("lambda2_init"),
+        at.scalar("tau2_init"),
+        at.iscalar("n_samples"),
+    )
+    outputs, updates = horseshoe_nbinom(
+        srng, X_csr, y_tt, h_tt, beta_init, lambda2_init, tau2_init, n_samples
+    )
+    sample_fn = aesara.function(
+        [beta_init, lambda2_init, tau2_init, n_samples], outputs, updates=updates
+    )
+
+    rng = np.random.default_rng(54321)
+    beta0, beta, lambda2_inv, tau2_inv = sample_fn(
+        rng.normal(0, 5, size=p), np.ones(p), 1, 100
+    )
 
 
 def test_horseshoe_nbinom():
@@ -18,8 +54,10 @@ def test_horseshoe_nbinom():
     srng = RandomStream(seed=12345)
     true_beta0 = srng.uniform(-1, 1)
     true_beta = np.array([5, 3, 3, 1, 1] + [0] * (p - 5))
+
     S = toeplitz(0.5 ** np.arange(p))
     X = srng.multivariate_normal(np.zeros(p), cov=S, size=N)
+
     y = srng.nbinom(h, at.sigmoid(-(X.dot(true_beta) + true_beta0)))
 
     beta_init, lambda2_init, tau2_init, n_samples = (

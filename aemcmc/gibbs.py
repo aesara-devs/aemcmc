@@ -14,13 +14,13 @@ from aemcmc.dists import (
 
 
 def update_beta_low_dimension(rng, omega, lambda2tau2_inv, X, z):
-    Q = X.T @ (omega[:, None] * X)
+    Q = at.dot(X.T, (omega[:, None] * X))
     indices = at.arange(Q.shape[1])
     Q = at.subtensor.set_subtensor(
         Q[indices, indices],
         at.diag(Q) + lambda2tau2_inv,
     )
-    return multivariate_normal_rue2005(rng, X.T @ (omega * z), Q)
+    return multivariate_normal_rue2005(rng, at.dot(X.T, (omega * z)), Q)
 
 
 def update_beta_high_dimension(rng, omega, lambda2tau2_inv, X, z):
@@ -247,12 +247,12 @@ def horseshoe_nbinom(
             The "number of successes" parameter of the negative binomial disribution
             used to model the data.
         """
-        xb = X @ beta
+        xb = at.dot(X, beta)
         w = srng.gen(polyagamma, y + h, beta0 + xb)
 
         z = 0.5 * (y - h) / w
         beta0_var = 1 / w.sum()
-        beta0_mean = beta0_var * (w @ (z - xb))
+        beta0_mean = beta0_var * at.dot(w, (z - xb))
         beta0_new = srng.normal(beta0_mean, at.sqrt(beta0_var))
 
         beta_new = update_beta(srng, w, lambda2_inv * tau2_inv, X, z - beta0_new)
@@ -401,12 +401,12 @@ def horseshoe_logistic(
             The observed binary data
         """
 
-        xb = X @ beta
+        xb = at.dot(X, beta)
         w = srng.gen(polyagamma, 1, beta0 + xb)
 
         z = (y - 0.5) / w
         beta0_var = 1 / w.sum()
-        beta0_mean = beta0_var * (w @ (z - xb))
+        beta0_mean = beta0_var * at.dot(w, (z - xb))
         beta0_new = srng.normal(beta0_mean, at.sqrt(beta0_var))
 
         beta_new = update_beta(srng, w, lambda2_inv * tau2_inv, X, z - beta0_new)
