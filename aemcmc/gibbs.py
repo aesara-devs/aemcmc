@@ -1,16 +1,26 @@
-from typing import Dict, List, Tuple
+from typing import Callable, Dict, List, NamedTuple, Tuple
 
 import aesara
 import aesara.tensor as at
+from aesara.graph.unify import eval_if_etuple
 from aesara.ifelse import ifelse
 from aesara.tensor.random import RandomStream
 from aesara.tensor.var import TensorVariable, Variable
+from etuples import etuple, etuplize
+from etuples.core import ExpressionTuple
+from unification import unify, var
 
 from aemcmc.dists import (
     multivariate_normal_cong2017,
     multivariate_normal_rue2005,
     polyagamma,
 )
+
+
+class Sampler(NamedTuple):
+    pattern: ExpressionTuple
+    match_fn: Callable
+    step_fn: Callable
 
 
 def update_beta_low_dimension(rng, omega, lambda2tau2_inv, X, z):
@@ -33,6 +43,51 @@ def update_beta(rng, omega, lambda2tau2_inv, X, z):
         update_beta_high_dimension(rng, omega, lambda2tau2_inv, X, z),
         update_beta_low_dimension(rng, omega, lambda2tau2_inv, X, z),
     )
+
+
+halfcauchy_1_lv, halfcauchy_2_lv = var(), var()
+zero_lv = var()
+horsehoe_pattern = etuple(
+    etuplize(at.random.normal),
+    var(),
+    var(),
+    var(),
+    zero_lv,
+    etuple(etuplize(at.mul), halfcauchy_1_lv, halfcauchy_2_lv),
+)
+
+
+def horseshoe_match(graph):
+    graph_et = etuplize(graph)
+
+    s = unify(graph_et, horsehoe_pattern)
+    if s is False:
+        raise ValueError("Not a horseshoe prior")
+
+    halfcauchy_1 = eval_if_etuple(s[halfcauchy_1_lv])
+
+    if halfcauchy_1.owner is None or not isinstance(
+        halfcauchy_1.owner.op, type(at.random.halfcauchy)
+    ):
+        raise ValueError("Input graph does not match")
+
+    halfcauchy_2 = eval_if_etuple(s[halfcauchy_2_lv])
+
+    if halfcauchy_2.owner is None or not isinstance(
+        halfcauchy_2.owner.op, type(at.random.halfcauchy)
+    ):
+        raise ValueError("Input graph does not match")
+
+    if halfcauchy_1.type.shape == (1,):
+        lambda_rv = halfcauchy_2
+        tau_rv = halfcauchy_1
+    elif halfcauchy_2.type.shape == (1,):
+        lambda_rv = halfcauchy_1
+        tau_rv = halfcauchy_2
+    else:
+        raise ValueError("Input graph does not match")
+
+    return (lambda_rv, tau_rv)
 
 
 def horseshoe_step(
@@ -92,6 +147,9 @@ def horseshoe_step(
         zeta_inv + 0.5 * (beta2 * lambda2_inv_new).sum() / sigma2,
     )
     return lambda2_inv_new, tau2_inv_new
+
+
+horseshoe = Sampler(horsehoe_pattern, horseshoe_match, horseshoe_step)
 
 
 def horseshoe_nbinom(
