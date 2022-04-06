@@ -16,11 +16,10 @@ def test_horseshoe_nbinom():
     p = 10
     N = 50
     srng = RandomStream(seed=12345)
-    true_beta0 = srng.uniform(-1, 1)
     true_beta = np.array([5, 3, 3, 1, 1] + [0] * (p - 5))
     S = toeplitz(0.5 ** np.arange(p))
     X = srng.multivariate_normal(np.zeros(p), cov=S, size=N)
-    y = srng.nbinom(h, at.sigmoid(-(X.dot(true_beta) + true_beta0)))
+    y = srng.nbinom(h, at.sigmoid(-X.dot(true_beta)))
 
     beta_init, lambda2_init, tau2_init, n_samples = (
         at.vector("beta_init"),
@@ -37,11 +36,10 @@ def test_horseshoe_nbinom():
 
     rng = np.random.default_rng(54321)
     posterior_samples = 2000
-    beta0, beta, lambda2_inv, tau2_inv = sample_fn(
+    beta, lambda2_inv, tau2_inv = sample_fn(
         rng.normal(0, 5, size=p), np.ones(p), 1, posterior_samples
     )
 
-    assert beta0.shape == (posterior_samples,)
     assert beta.shape == (posterior_samples, p)
     assert lambda2_inv.shape == (posterior_samples, p)
     assert tau2_inv.shape == (posterior_samples,)
@@ -89,11 +87,10 @@ def test_horseshoe_logistic():
     p = 10
     N = 50
     srng = RandomStream(seed=12345)
-    true_beta0 = srng.uniform(-1, 1)
     true_beta = np.array([5, 3, 3, 1, 1] + [0] * (p - 5))
     S = toeplitz(0.5 ** np.arange(p))
     X = srng.multivariate_normal(np.zeros(p), cov=S, size=N)
-    y = srng.bernoulli(at.sigmoid(-(X.dot(true_beta) + true_beta0)))
+    y = srng.bernoulli(at.sigmoid(-X.dot(true_beta)))
 
     beta_init, lambda2_init, tau2_init, n_samples = (
         at.vector("beta_init"),
@@ -110,11 +107,10 @@ def test_horseshoe_logistic():
 
     rng = np.random.default_rng(54321)
     posterior_samples = 2000
-    beta0, beta, lambda2_inv, tau2_inv = sample_fn(
+    beta, lambda2_inv, tau2_inv = sample_fn(
         rng.normal(0, 5, size=p), np.ones(p), 1, posterior_samples
     )
 
-    assert beta0.shape == (posterior_samples,)
     assert beta.shape == (posterior_samples, p)
     assert lambda2_inv.shape == (posterior_samples, p)
     assert tau2_inv.shape == (posterior_samples,)

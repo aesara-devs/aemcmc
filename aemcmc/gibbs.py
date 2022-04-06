@@ -156,11 +156,7 @@ def horseshoe_nbinom(
 
     Notes
     -----
-    [2] mention that the intercept term should not be subject to any
-    regularization and thus needs to be explicitely modelled. As recommented by
-    the authors, we use a uniform prior on the intercept of the regression
-    coefficients and its posterior conditional distribution is shown in
-    equation (14) of [2]. The ``z`` expression in section 2.2 of [1] seems to
+    The ``z`` expression in section 2.2 of [1] seems to
     omit division by the Polya-Gamma auxilliary variables whereas [2] and [3]
     explicitely include it. We found that including the division results in
     accurate posterior samples for the regression coefficients. It is also
@@ -208,13 +204,7 @@ def horseshoe_nbinom(
     # modelled using linear regression.
     sigma2 = at.constant(1, "sigma2")
 
-    # set the initial value of the intercept term to a random uniform value.
-    # TODO: Set the prior value of the intercept outside of the function
-    beta0 = srng.uniform(-10, 10)
-    beta0.name = "intercept"
-
     def step_fn(
-        beta0: TensorVariable,
         beta: TensorVariable,
         lambda2_inv: TensorVariable,
         tau2_inv: TensorVariable,
@@ -222,17 +212,15 @@ def horseshoe_nbinom(
         X: TensorVariable,
         y: TensorVariable,
         h: TensorVariable,
-    ) -> Tuple[TensorVariable, TensorVariable, TensorVariable, TensorVariable]:
+    ) -> Tuple[TensorVariable, TensorVariable, TensorVariable]:
         """
         Complete one full update of the gibbs sampler and return the new state
         of the posterior conditional parameters.
 
         Parameters
         ----------
-        beta0: TensorVariable
-            The intercept coefficient of the regression model.
         beta: Tensorvariable
-            Coefficients (other than intercept) of the regression model.
+            Coefficients of the regression model.
         lambda2_inv
             Square inverse of the local shrinkage parameter of the horseshoe prior.
         tau2_inv
@@ -248,24 +236,20 @@ def horseshoe_nbinom(
             used to model the data.
         """
         xb = X @ beta
-        w = srng.gen(polyagamma, y + h, beta0 + xb)
+        w = srng.gen(polyagamma, y + h, xb)
 
         z = 0.5 * (y - h) / w
-        beta0_var = 1 / w.sum()
-        beta0_mean = beta0_var * (w @ (z - xb))
-        beta0_new = srng.normal(beta0_mean, at.sqrt(beta0_var))
-
-        beta_new = update_beta(srng, w, lambda2_inv * tau2_inv, X, z - beta0_new)
+        beta_new = update_beta(srng, w, lambda2_inv * tau2_inv, X, z)
 
         lambda2_inv_new, tau2_inv_new = horseshoe_step(
             srng, beta_new, sigma2, lambda2_inv, tau2_inv
         )
 
-        return beta0_new, beta_new, lambda2_inv_new, tau2_inv_new
+        return beta_new, lambda2_inv_new, tau2_inv_new
 
     outputs, updates = aesara.scan(
         step_fn,
-        outputs_info=[beta0, beta, 1 / lambda2, 1 / tau2],
+        outputs_info=[beta, 1 / lambda2, 1 / tau2],
         non_sequences=[sigma2, X, y, h],
         n_steps=n_samples,
         strict=True,
@@ -367,30 +351,22 @@ def horseshoe_logistic(
     # using linear regression.
     sigma2 = at.constant(1, "sigma2")
 
-    # set the initial value of the intercept term to a random uniform value.
-    # TODO: Set the prior value of the intercept outside of the function
-    beta0 = srng.uniform(-10, 10)
-    beta0.name = "intercept"
-
     def step_fn(
-        beta0: TensorVariable,
         beta: TensorVariable,
         lambda2_inv: TensorVariable,
         tau2_inv: TensorVariable,
         sigma2: TensorVariable,
         X: TensorVariable,
         y: TensorVariable,
-    ) -> Tuple[TensorVariable, TensorVariable, TensorVariable, TensorVariable]:
+    ) -> Tuple[TensorVariable, TensorVariable, TensorVariable]:
         """
         Complete one full update of the gibbs sampler and return the new state
         of the posterior conditional parameters.
 
         Parameters
         ----------
-        beta0: TensorVariable
-            The intercept coefficient of the regression model.
         beta: Tensorvariable
-            Coefficients (other than intercept) of the regression model.
+            Coefficients of the regression model.
         lambda2_inv
             Square inverse of the local shrinkage parameter of the horseshoe prior.
         tau2_inv
@@ -402,24 +378,20 @@ def horseshoe_logistic(
         """
 
         xb = X @ beta
-        w = srng.gen(polyagamma, 1, beta0 + xb)
+        w = srng.gen(polyagamma, 1, xb)
 
         z = (y - 0.5) / w
-        beta0_var = 1 / w.sum()
-        beta0_mean = beta0_var * (w @ (z - xb))
-        beta0_new = srng.normal(beta0_mean, at.sqrt(beta0_var))
-
-        beta_new = update_beta(srng, w, lambda2_inv * tau2_inv, X, z - beta0_new)
+        beta_new = update_beta(srng, w, lambda2_inv * tau2_inv, X, z)
 
         lambda2_inv_new, tau2_inv_new = horseshoe_step(
             srng, beta_new, sigma2, lambda2_inv, tau2_inv
         )
 
-        return beta0_new, beta_new, lambda2_inv_new, tau2_inv_new
+        return beta_new, lambda2_inv_new, tau2_inv_new
 
     outputs, updates = aesara.scan(
         step_fn,
-        outputs_info=[beta0, beta, 1 / lambda2, 1 / tau2],
+        outputs_info=[beta, 1 / lambda2, 1 / tau2],
         non_sequences=[sigma2, X, y],
         n_steps=n_samples,
         strict=True,
