@@ -5,147 +5,188 @@ import pytest
 from aesara.tensor.random.utils import RandomStream
 from scipy.linalg import toeplitz
 
-from aemcmc.gibbs import horseshoe_logistic, horseshoe_nbinom
+from aemcmc.gibbs import (
+    bernoulli_horseshoe_gibbs,
+    bernoulli_horseshoe_match,
+    bernoulli_horseshoe_model,
+    horseshoe_match,
+    horseshoe_model,
+    nbinom_horseshoe_gibbs,
+    nbinom_horseshoe_match,
+    nbinom_horseshoe_model,
+)
 
 
-def test_horseshoe_nbinom():
+@pytest.fixture
+def srng():
+    return RandomStream(1234)
+
+
+def test_match_horseshoe(srng):
+    horseshoe_match(horseshoe_model(srng))
+
+    # exchanging tau and lmbda in the product
+    size = at.scalar("size", dtype="int32")
+    tau_rv = srng.halfcauchy(0, 1, size=1)
+    lmbda_rv = srng.halfcauchy(0, 1, size=size)
+    beta_rv = srng.normal(0, lmbda_rv * tau_rv, size=size)
+    horseshoe_match(beta_rv)
+
+
+def test_match_horseshoe_wrong_graph(srng):
+    beta_rv = srng.normal(0, 1)
+    with pytest.raises(ValueError):
+        horseshoe_match(beta_rv)
+
+
+def test_match_horseshoe_wrong_local_scale_dist(srng):
+    size = at.scalar("size", dtype="int32")
+    tau_rv = srng.halfcauchy(0, 1, size=1)
+    lmbda_rv = srng.normal(0, 1, size=size)
+    beta_rv = srng.normal(0, tau_rv * lmbda_rv, size=size)
+    with pytest.raises(ValueError):
+        horseshoe_match(beta_rv)
+
+
+def test_match_horseshoe_wrong_global_scale_dist(srng):
+    size = at.scalar("size", dtype="int32")
+    tau_rv = srng.normal(0, 1, size=1)
+    lmbda_rv = srng.halfcauchy(0, 1, size=size)
+    beta_rv = srng.normal(0, tau_rv * lmbda_rv, size=size)
+    with pytest.raises(ValueError):
+        horseshoe_match(beta_rv)
+
+
+def test_match_horseshoe_wrong_dimensions(srng):
+    size = at.scalar("size", dtype="int32")
+    tau_rv = srng.halfcauchy(0, 1, size=size)
+    lmbda_rv = srng.halfcauchy(0, 1, size=size)
+
+    beta_rv = srng.normal(0, tau_rv * lmbda_rv, size=size)
+    with pytest.raises(ValueError):
+        horseshoe_match(beta_rv)
+
+
+def test_match_nbinom_horseshoe(srng):
+    nbinom_horseshoe_match(nbinom_horseshoe_model(srng))
+
+
+def test_match_binom_horseshoe_wrong_graph(srng):
+    beta = at.vector("beta")
+    X = at.matrix("X")
+    Y = X @ beta
+
+    with pytest.raises(ValueError):
+        nbinom_horseshoe_match(Y)
+
+
+def test_match_nbinom_horseshoe_wrong_sign(srng):
+    X = at.matrix("X")
+    h = at.scalar("h")
+
+    beta_rv = horseshoe_model(srng)
+    eta = X @ beta_rv
+    p = at.sigmoid(2 * eta)
+    Y_rv = srng.nbinom(h, p)
+
+    with pytest.raises(ValueError):
+        nbinom_horseshoe_match(Y_rv)
+
+
+def test_horseshoe_nbinom(srng):
     """
     This test example is modified from section 3.2 of Makalic & Schmidt (2016)
     """
     h = 2
     p = 10
     N = 50
-    srng = RandomStream(seed=12345)
+
+    # generate synthetic data
     true_beta = np.array([5, 3, 3, 1, 1] + [0] * (p - 5))
     S = toeplitz(0.5 ** np.arange(p))
     X = srng.multivariate_normal(np.zeros(p), cov=S, size=N)
-    y = srng.nbinom(h, at.sigmoid(-X.dot(true_beta)))
+    y = srng.nbinom(h, at.sigmoid(-(X.dot(true_beta))))
 
-    beta_init, lambda2_init, tau2_init, n_samples = (
-        at.vector("beta_init"),
-        at.vector("lambda2_init"),
-        at.scalar("tau2_init"),
-        at.iscalar("n_samples"),
-    )
-    outputs, updates = horseshoe_nbinom(
-        srng, X, y, h, beta_init, lambda2_init, tau2_init, n_samples
-    )
-    sample_fn = aesara.function(
-        [beta_init, lambda2_init, tau2_init, n_samples], outputs, updates=updates
-    )
+    # build the model
+    tau_rv = srng.halfcauchy(0, 1, size=1)
+    lambda_rv = srng.halfcauchy(0, 1, size=p)
+    beta_rv = srng.normal(0, tau_rv * lambda_rv, size=p)
 
-    rng = np.random.default_rng(54321)
-    posterior_samples = 2000
-    beta, lambda2_inv, tau2_inv = sample_fn(
-        rng.normal(0, 5, size=p), np.ones(p), 1, posterior_samples
-    )
+    eta_tt = X @ beta_rv
+    p_tt = at.sigmoid(-eta_tt)
+    Y_rv = srng.nbinom(h, p_tt)
 
-    assert beta.shape == (posterior_samples, p)
-    assert lambda2_inv.shape == (posterior_samples, p)
-    assert tau2_inv.shape == (posterior_samples,)
+    # sample from the posterior distributions
+    num_samples = at.scalar("num_samples", dtype="int32")
+    outputs, updates = nbinom_horseshoe_gibbs(srng, Y_rv, y, num_samples)
+    sample_fn = aesara.function((num_samples,), outputs, updates=updates)
+
+    beta, lmbda, tau = sample_fn(2000)
+
+    assert beta.shape == (2000, p)
+    assert lmbda.shape == (2000, p)
+    assert tau.shape == (2000, 1)
 
     # test distribution domains
-    assert np.all(tau2_inv > 0)
-    assert np.all(lambda2_inv > 0)
-
-    # test if the sampler fails with wrong input
-    with pytest.raises(ValueError, match="`beta_init` must be a vector "):
-        wrong_beta_init = at.tensor3("wrong_beta_init")
-        horseshoe_nbinom(
-            srng, X, y, h, wrong_beta_init, lambda2_init, tau2_init, n_samples
-        )
-
-    with pytest.raises(
-        ValueError, match="The local shrinkage initial value must be a vector"
-    ):
-        wrong_lambda2_init = at.scalar("wrong_lambda2_init")
-        horseshoe_nbinom(
-            srng, X, y, h, beta_init, wrong_lambda2_init, tau2_init, n_samples
-        )
-
-    with pytest.raises(
-        ValueError, match="The global shrinkage initial value must be a scalar"
-    ):
-        wrong_tau2_init = at.matrix("wrong_tau2_init")
-        horseshoe_nbinom(
-            srng, X, y, h, beta_init, lambda2_init, wrong_tau2_init, n_samples
-        )
-
-    with pytest.raises(
-        ValueError, match="The number of samples should be an integer scalar"
-    ):
-        wrong_n_samples = at.vector("wrong_n_samples")
-        horseshoe_nbinom(
-            srng, X, y, h, beta_init, lambda2_init, tau2_init, wrong_n_samples
-        )
+    assert np.all(tau > 0)
+    assert np.all(lmbda > 0)
 
 
-def test_horseshoe_logistic():
-    """
-    This test example is copied from section 3.2 of Makalic & Schmidt (2016)
-    """
+def test_match_bernoulli_horseshoe(srng):
+    bernoulli_horseshoe_match(bernoulli_horseshoe_model(srng))
+
+
+def test_match_bernoulli_horseshoe_wrong_graph(srng):
+    beta = at.vector("beta")
+    X = at.matrix("X")
+    Y = X @ beta
+
+    with pytest.raises(ValueError):
+        bernoulli_horseshoe_match(Y)
+
+
+def test_match_bernoulli_horseshoe_wrong_sign(srng):
+    X = at.matrix("X")
+
+    beta_rv = horseshoe_model(srng)
+    eta = X @ beta_rv
+    p = at.sigmoid(2 * eta)
+    Y_rv = srng.bernoulli(p)
+
+    with pytest.raises(ValueError):
+        bernoulli_horseshoe_match(Y_rv)
+
+
+def test_bernoulli_horseshoe(srng):
     p = 10
     N = 50
-    srng = RandomStream(seed=12345)
+
+    # generate synthetic data
     true_beta = np.array([5, 3, 3, 1, 1] + [0] * (p - 5))
     S = toeplitz(0.5 ** np.arange(p))
     X = srng.multivariate_normal(np.zeros(p), cov=S, size=N)
     y = srng.bernoulli(at.sigmoid(-X.dot(true_beta)))
 
-    beta_init, lambda2_init, tau2_init, n_samples = (
-        at.vector("beta_init"),
-        at.vector("lambda2_init"),
-        at.scalar("tau2_init"),
-        at.iscalar("n_samples"),
-    )
-    outputs, updates = horseshoe_logistic(
-        srng, X, y, beta_init, lambda2_init, tau2_init, n_samples
-    )
-    sample_fn = aesara.function(
-        [beta_init, lambda2_init, tau2_init, n_samples], outputs, updates=updates
-    )
+    # build the model
+    tau_rv = srng.halfcauchy(0, 1, size=1)
+    lambda_rv = srng.halfcauchy(0, 1, size=p)
+    beta_rv = srng.normal(0, tau_rv * lambda_rv, size=p)
 
-    rng = np.random.default_rng(54321)
-    posterior_samples = 2000
-    beta, lambda2_inv, tau2_inv = sample_fn(
-        rng.normal(0, 5, size=p), np.ones(p), 1, posterior_samples
-    )
+    eta_tt = X @ beta_rv
+    p_tt = at.sigmoid(-eta_tt)
+    Y_rv = srng.bernoulli(p_tt)
 
-    assert beta.shape == (posterior_samples, p)
-    assert lambda2_inv.shape == (posterior_samples, p)
-    assert tau2_inv.shape == (posterior_samples,)
+    # sample from the posterior distributions
+    num_samples = at.scalar("num_samples", dtype="int32")
+    outputs, updates = bernoulli_horseshoe_gibbs(srng, Y_rv, y, num_samples)
+    sample_fn = aesara.function((num_samples,), outputs, updates=updates)
+
+    beta, lmbda, tau = sample_fn(2000)
+
+    assert beta.shape == (2000, p)
+    assert lmbda.shape == (2000, p)
+    assert tau.shape == (2000, 1)
 
     # test distribution domains
-    assert np.all(tau2_inv > 0)
-    assert np.all(lambda2_inv > 0)
-
-    # test if the sampler fails with wrong input
-    with pytest.raises(ValueError, match="`beta_init` must be a vector "):
-        wrong_beta_init = at.tensor3("wrong_beta_init")
-        horseshoe_logistic(
-            srng, X, y, wrong_beta_init, lambda2_init, tau2_init, n_samples
-        )
-
-    with pytest.raises(
-        ValueError, match="The local shrinkage initial value must be a vector"
-    ):
-        wrong_lambda2_init = at.scalar("wrong_lambda2_init")
-        horseshoe_logistic(
-            srng, X, y, beta_init, wrong_lambda2_init, tau2_init, n_samples
-        )
-
-    with pytest.raises(
-        ValueError, match="The global shrinkage initial value must be a scalar"
-    ):
-        wrong_tau2_init = at.matrix("wrong_tau2_init")
-        horseshoe_logistic(
-            srng, X, y, beta_init, lambda2_init, wrong_tau2_init, n_samples
-        )
-
-    with pytest.raises(
-        ValueError, match="The number of samples should be an integer scalar"
-    ):
-        wrong_n_samples = at.vector("wrong_n_samples")
-        horseshoe_logistic(
-            srng, X, y, beta_init, lambda2_init, tau2_init, wrong_n_samples
-        )
+    assert np.all(tau > 0)
+    assert np.all(lmbda > 0)
