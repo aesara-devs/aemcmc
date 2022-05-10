@@ -32,16 +32,24 @@ def test_polyagamma():
 
 
 def test_multivariate_normal_rue2005():
-    nrng = np.random.default_rng(54321)
-    b = np.array([0.5, -0.2, 0.75, 1.0, -2.22])
-    Q = csc_matrix(np.diag(nrng.random(5)))
+    b = np.array([0, -1, 5])
+    var_inv = np.array([1.0, 2.0, 4.0])
+    Q = csc_matrix(np.diag(var_inv))
+
+    var = 1.0 / var_inv
+    mean = b * var
 
     srng = at.random.RandomStream(12345)
-    got = multivariate_normal_rue2005(srng, at.as_tensor(b), as_sparse(Q))
-    expected = np.array(
-        [-0.87260997, 0.24812936, -0.14312798, 30.57354048, -6.83054447]
-    )
-    np.testing.assert_allclose(got.eval(), expected)
+
+    def update():
+        return multivariate_normal_rue2005(srng, at.as_tensor(b), as_sparse(Q))
+
+    samples_out, updates = aesara.scan(update, n_steps=10000)
+    sampling_fn = aesara.function((), samples_out, updates=updates)
+    samples = sampling_fn()
+
+    np.testing.assert_allclose(np.mean(samples, axis=0), mean, atol=0.1)
+    np.testing.assert_allclose(np.var(samples, axis=0), var, atol=0.1)
 
 
 def test_multivariate_normal_bhattacharya2016():
@@ -56,8 +64,8 @@ def test_multivariate_normal_bhattacharya2016():
     got = multivariate_normal_bhattacharya2016(
         srng, at.as_tensor(D), at.as_tensor(phi), at.as_tensor(alpha)
     )
-    expected = np.array([0.13220936, 0.20621965, -2.98777855, -2.35904856, -0.19972386])
-    np.testing.assert_allclose(got.eval(), expected)
+    expected_shape = (5,)
+    np.testing.assert_allclose(np.shape(got.eval()), expected_shape)
 
 
 def test_multivariate_normal_cong2017():
@@ -73,5 +81,5 @@ def test_multivariate_normal_cong2017():
     got = multivariate_normal_cong2017(
         srng, at.as_tensor(A), at.as_tensor(omega), at.as_tensor(phi), at.as_tensor(t)
     )
-    expected = np.array([0.79532198, 0.54771371, 0.42505174, -0.33428737, -0.74749463])
-    np.testing.assert_allclose(got.eval(), expected)
+    expected_shape = (5,)
+    np.testing.assert_allclose(np.shape(got.eval()), expected_shape)
