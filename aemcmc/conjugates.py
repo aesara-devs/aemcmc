@@ -1,7 +1,11 @@
 import aesara.tensor as at
+from aesara.graph.kanren import KanrenRelationSub
+from aesara.graph.optdb import OptimizationDatabase
 from etuples import etuple, etuplize
 from kanren import eq, lall
 from unification import var
+
+conjugatesdb = OptimizationDatabase()
 
 
 def beta_binomial_conjugateo(observed_rv_expr, posterior_expr):
@@ -64,3 +68,6 @@ def beta_binomial_conjugateo(observed_rv_expr, posterior_expr):
         eq(observed_rv_expr[1], y_lv),
         eq(posterior_expr, p_posterior_et),
     )
+
+
+conjugatesdb.register("beta_binomial", KanrenRelationSub(beta_binomial_conjugateo))
