@@ -1,8 +1,9 @@
-from typing import Dict, List, Tuple, Union
+from typing import Dict, List, Mapping, Tuple, Union
 
 import aesara
 import aesara.tensor as at
 from aesara.graph import optimize_graph
+from aesara.graph.basic import Variable
 from aesara.graph.opt import EquilibriumOptimizer
 from aesara.graph.unify import eval_if_etuple
 from aesara.ifelse import ifelse
@@ -212,6 +213,25 @@ sigmoid_dot_pattern = etuple(
     etuple(etuplize(at.mul), neg_one_lv, etuple(etuple(Dot), X_lv, beta_lv)),
 )
 
+a_lv = var()
+b_lv = var()
+gamma_pattern = etuple(etuplize(at.random.gamma), var(), var(), var(), a_lv, b_lv)
+
+
+def gamma_match(
+    graph: TensorVariable,
+) -> Tuple[TensorVariable, TensorVariable]:
+    graph_opt = optimize_graph(graph)
+    graph_et = etuplize(graph_opt)
+    s = unify(graph_et, gamma_pattern)
+    if s is False:
+        raise ValueError("Not a gamma prior.")
+
+    a = eval_if_etuple(s[a_lv])
+    b = eval_if_etuple(s[b_lv])
+
+    return a, b
+
 
 h_lv = var()
 nbinom_sigmoid_dot_pattern = etuple(
@@ -264,6 +284,113 @@ def nbinom_horseshoe_match(
     return h, X, beta_rv, lmbda_rv, tau_rv
 
 
+def sample_CRT(
+    srng: RandomStream, y: TensorVariable, h: TensorVariable
+) -> Tuple[TensorVariable, Mapping[Variable, Variable]]:
+    r"""Sample a Chinese Restaurant Process value: :math:`l \sim \operatorname{CRT}(y, h)`.
+
+    Sampling is performed according to the following:
+
+    .. math::
+
+        \begin{gather*}
+            l = \sum_{n=1}^{y} b_n, \quad
+            b_n \sim \operatorname{Bern}\left(\frac{h}{n - 1 + h}\right)
+        \end{gather*}
+
+    References
+    ----------
+    .. [1] Zhou, Mingyuan, and Lawrence Carin. 2012. “Augment-and-Conquer Negative Binomial Processes.” Advances in Neural Information Processing Systems 25.
+
+    """
+
+    def single_sample_CRT(y_i: TensorVariable, h: TensorVariable):
+        n_i = at.arange(2, y_i + 1)
+        return at.switch(y_i < 1, 0, 1 + srng.bernoulli(h / (n_i - 1 + h)).sum())
+
+    res, updates = aesara.scan(
+        single_sample_CRT,
+        sequences=[y.ravel()],
+        non_sequences=[h],
+        strict=True,
+    )
+    res = res.reshape(y.shape)
+    res.name = "CRT sample"
+
+    return res, updates
+
+
+def h_step(
+    srng: RandomStream,
+    h_last: TensorVariable,
+    p: TensorVariable,
+    a: TensorVariable,
+    b: TensorVariable,
+    y: TensorVariable,
+) -> Tuple[TensorVariable, Mapping[Variable, Variable]]:
+    r"""Sample the conditional posterior for the dispersion parameter under a negative-binomial and gamma prior.
+
+    In other words, this draws a sample from :math:`h \mid Y = y` per
+
+    .. math::
+
+        \begin{align*}
+            Y_i &\sim \operatorname{NB}(h, p_i) \\
+            h &\sim \operatorname{Gamma}(a, b)
+        \end{align*}
+
+    where `y` is a sample from :math:`y \sim Y`.
+
+    The conditional posterior sample step is derived from the following decomposition:
+
+    .. math::
+        \begin{gather*}
+            Y_i = \sum_{j=1}^{l_i} u_{i j}, \quad u_{i j} \sim \operatorname{Log}(p_i), \quad
+            l_i \sim \operatorname{Pois}\left(-h \log(1 - p_i)\right)
+        \end{gather*}
+
+    where :math:`\operatorname{Log}` is the logarithmic distribution.  Under a
+    gamma prior, :math:`h` is conjugate to :math:`l`.  We draw samples from
+    :math:`l` according to :math:`l \sim \operatorname{CRT(y, h)}`.
+
+    The resulting posterior is
+
+    .. math::
+
+        \begin{gather*}
+            \left(h \mid Y = y\right) \sim \operatorname{Gamma}\left(a + \sum_{i=1}^N l_i, \frac{1}{1/b + \sum_{i=1}^N \log(1 - p_i)} \right)
+        \end{gather*}
+
+
+    References
+    ----------
+    .. [1] Zhou, Mingyuan, Lingbo Li, David Dunson, and Lawrence Carin. 2012. “Lognormal and Gamma Mixed Negative Binomial Regression.” Proceedings of the International Conference on Machine Learning. International Conference on Machine Learning 2012: 1343–50. https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4180062/.
+
+    """
+    Ls, updates = sample_CRT(srng, y, h_last)
+    L_sum = Ls.sum(axis=-1)
+    h = srng.gamma(a + L_sum, at.reciprocal(b) - at.sum(at.log(1 - p), axis=-1))
+    h.name = f"{h_last.name or 'h'}-posterior"
+    return h, updates
+
+
+def nbinom_horseshoe_with_dispersion_match(
+    Y_rv: TensorVariable,
+) -> Tuple[
+    TensorVariable,
+    TensorVariable,
+    TensorVariable,
+    TensorVariable,
+    TensorVariable,
+    TensorVariable,
+    TensorVariable,
+]:
+    X, h_rv, beta_rv = nbinom_sigmoid_dot_match(Y_rv)
+    lmbda_rv, tau_rv = horseshoe_match(beta_rv)
+    a, b = gamma_match(h_rv)
+    return X, beta_rv, lmbda_rv, tau_rv, h_rv, a, b
+
+
 def nbinom_horseshoe_gibbs(
     srng: RandomStream, Y_rv: TensorVariable, y: TensorVariable, num_samples: int
 ) -> Tuple[Union[TensorVariable, List[TensorVariable]], Dict]:
@@ -275,7 +402,7 @@ def nbinom_horseshoe_gibbs(
     .. math::
 
         \begin{align*}
-            Y_i &\sim \operatorname{NB}\left(p_i, h\right) \\
+            Y_i &\sim \operatorname{NB}\left(h, p_i\right) \\
             p_i &= \frac{\exp(\psi_i)}{1 + \exp(\psi_i)} \\
             \psi_i &= x_i^\top \beta \\
             \beta_j &\sim \operatorname{N}(0, \lambda_j^2 \tau^2) \\
@@ -361,7 +488,6 @@ def nbinom_horseshoe_gibbs(
         lmbda_inv_new, tau_inv_new = horseshoe_step(
             srng, beta_new, 1.0, lmbda_inv, tau_inv
         )
-
         return beta_new, 1.0 / lmbda_inv_new, 1.0 / tau_inv_new
 
     h, X, beta_rv, lmbda_rv, tau_rv = nbinom_horseshoe_match(Y_rv)
@@ -370,6 +496,100 @@ def nbinom_horseshoe_gibbs(
         nbinom_horseshoe_step,
         outputs_info=[beta_rv, lmbda_rv, tau_rv],
         non_sequences=[y, X, h],
+        n_steps=num_samples,
+        strict=True,
+    )
+
+    return outputs, updates
+
+
+def nbinom_horseshoe_gibbs_with_dispersion(
+    srng: RandomStream,
+    Y_rv: TensorVariable,
+    y: TensorVariable,
+    num_samples: TensorVariable,
+) -> Tuple[Union[TensorVariable, List[TensorVariable]], Mapping[Variable, Variable]]:
+    r"""Build a Gibbs sampler for the negative binomial regression with a horseshoe prior and gamma prior dispersion.
+
+    This is a direct extension of `nbinom_horseshoe_gibbs_with_dispersion` that
+    adds a gamma prior assumption to the :math:`h` parameter in the
+    negative-binomial and samples according to [1]_.
+
+    In other words, this model is the same as `nbinom_horseshoe_gibbs` except
+    for the addition assumption:
+
+    .. math::
+
+        \begin{gather*}
+            h \sim \operatorname{Gamma}\left(a, b\right)
+        \end{gather*}
+
+
+    References
+    ----------
+    .. [1] Zhou, Mingyuan, Lingbo Li, David Dunson, and Lawrence Carin. 2012. “Lognormal and Gamma Mixed Negative Binomial Regression.” Proceedings of the International Conference on Machine Learning. International Conference on Machine Learning 2012: 1343–50. https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4180062/.
+
+    """
+
+    def nbinom_horseshoe_step(
+        beta: TensorVariable,
+        lmbda: TensorVariable,
+        tau: TensorVariable,
+        h: TensorVariable,
+        y: TensorVariable,
+        X: TensorVariable,
+        a: TensorVariable,
+        b: TensorVariable,
+    ):
+        """Complete one full update of the Gibbs sampler and return the new state
+        of the posterior conditional parameters.
+
+        Parameters
+        ----------
+        beta
+            Coefficients (other than intercept) of the regression model.
+        lmbda
+            Inverse of the local shrinkage parameter of the horseshoe prior.
+        tau
+            Inverse of the global shrinkage parameters of the horseshoe prior.
+        h
+            The "number of successes" parameter of the negative-binomial distribution
+            used to model the data.
+        y
+            The observed count data.
+        X
+            The covariate matrix.
+        a
+            The shape parameter for the :math:`h` gamma prior.
+        b
+            The rate parameter for the :math:`h` gamma prior.
+
+        """
+        xb = X @ beta
+        w = srng.gen(polyagamma, y + h, xb)
+        z = 0.5 * (y - h) / w
+
+        lmbda_inv = 1.0 / lmbda
+        tau_inv = 1.0 / tau
+        beta_new = update_beta(srng, w, lmbda_inv * tau_inv, X, z)
+
+        lmbda_inv_new, tau_inv_new = horseshoe_step(
+            srng, beta_new, 1.0, lmbda_inv, tau_inv
+        )
+        eta = X @ beta_new
+        p = at.sigmoid(-eta)
+        h_new, h_updates = h_step(srng, h, p, a, b, y)
+
+        return (beta_new, 1.0 / lmbda_inv_new, 1.0 / tau_inv_new, h_new), h_updates
+
+    X, beta_rv, lmbda_rv, tau_rv, h_rv, a, b = nbinom_horseshoe_with_dispersion_match(
+        Y_rv
+    )
+
+    outputs, updates = aesara.scan(
+        nbinom_horseshoe_step,
+        outputs_info=[beta_rv, lmbda_rv, tau_rv, h_rv],
+        non_sequences=[y, X, a, b],
         n_steps=num_samples,
         strict=True,
     )
