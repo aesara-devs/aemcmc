@@ -26,8 +26,8 @@ setup(
         "miniKanren",
     ],
     tests_require=["pytest"],
-    long_description=open("README.md").read() if exists("README.md") else "",
-    long_description_content_type="text/markdown",
+    long_description=open("README.rst").read() if exists("README.rst") else "",
+    long_description_content_type="text/x-rst",
     zip_safe=False,
     python_requires=">=3.7",
     classifiers=[
