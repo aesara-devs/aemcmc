@@ -19,6 +19,7 @@ setup(
         "scipy>=1.4.0",
         "aesara>=2.6.6",
         "aeppl>=0.0.31",
+        "aehmc>=0.0.5",
         "polyagamma>=1.3.2",
         "cons",
         "logical-unification",
