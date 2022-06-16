@@ -28,7 +28,6 @@ def test_beta_binomial_conjugate_contract():
     q_lv = var()
     (posterior_expr,) = run(1, q_lv, beta_binomial_conjugateo((Y_rv, y_vv), q_lv))
     posterior = eval_if_etuple(posterior_expr)
-    aesara.dprint(posterior)
 
     assert isinstance(posterior.owner.op, type(at.random.beta))
 
