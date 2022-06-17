@@ -145,9 +145,8 @@ def horseshoe_step(
     .. math::
 
         \begin{align*}
-            \beta_j &\sim \operatorname{Normal}(0, \lambda_j^2\;\tau^2\;\sigma^2)\\
-            \sigma^2 &\sim \sigma^{-2} \mathrm{d} \sigma\\
-            \lambda_j &\sim \operatorname{HalfCauchy}(0, 1)\\
+            \beta_j &\sim \operatorname{N}\left(0, \lambda_j^2 \tau^2 \sigma^2\right) \\
+            \lambda_j &\sim \operatorname{HalfCauchy}(0, 1) \\
             \tau &\sim \operatorname{HalfCauchy}(0, 1)
         \end{align*}
 
@@ -156,7 +155,7 @@ def horseshoe_step(
 
     1. The half-Cauchy distribution can be intepreted as a mixture of inverse-gamma
     distributions;
-    2. If :math:` Y \sim InverseGamma(1, a)`, :math:`Y \sim 1 / \operatorname{Exp}(a)`.
+    2. If :math:` Y \sim \operatorname{InvGamma}(1, a)`, :math:`Y \sim 1 / \operatorname{Exp}(a)`.
 
     Parameters
     ----------
@@ -173,7 +172,7 @@ def horseshoe_step(
 
     References
     ----------
-    ..[1] Makalic, Enes & Schmidt, Daniel. (2016). High-Dimensional Bayesian
+    .. [1] Makalic, Enes & Schmidt, Daniel. (2016). High-Dimensional Bayesian
           Regularised Regression with the BayesReg Package.
 
     """
@@ -255,18 +254,17 @@ def nbinom_horseshoe_gibbs(
 ) -> Tuple[Union[TensorVariable, List[TensorVariable]], Dict]:
     r"""Build a Gibbs sampler for the negative binomial regression with a horseshoe prior.
 
-    The implementation follows the sampler described in [1]. It is designed to
+    The implementation follows the sampler described in [1]_. It is designed to
     sample efficiently from the following negative binomial regression model:
 
     .. math::
 
         \begin{align*}
-            y_i &\sim \operatorname{NegativeBinomial}\left(\pi_i, h\right)\\
-            h &\sim \pi_h(h) \mathrm{d}h\\
-            \pi_i &= \frac{\exp(\psi_i)}{1 + \exp(\psi_i)}\\
-            \psi_i &= x^T \beta\\
-            \beta_j &\sim \operatorname{Normal}(0, \lambda_j^2\;\tau^2)\\
-            \lambda_j &\sim \operatorname{HalfCauchy}(0, 1)\\
+            Y_i &\sim \operatorname{NB}\left(p_i, h\right) \\
+            p_i &= \frac{\exp(\psi_i)}{1 + \exp(\psi_i)} \\
+            \psi_i &= x_i^\top \beta \\
+            \beta_j &\sim \operatorname{N}(0, \lambda_j^2 \tau^2) \\
+            \lambda_j &\sim \operatorname{HalfCauchy}(0, 1) \\
             \tau &\sim \operatorname{HalfCauchy}(0, 1)
         \end{align*}
 
@@ -290,20 +288,20 @@ def nbinom_horseshoe_gibbs(
 
     Notes
     -----
-    The ``z`` expression in section 2.2 of [1] seems to
-    omit division by the Polya-Gamma auxilliary variables whereas [2] and [3]
+    The :math:`z` expression in Section 2.2 of [1]_ seems to
+    omit division by the Polya-Gamma auxilliary variables whereas [2]_ and [3]_
     explicitely include it. We found that including the division results in
     accurate posterior samples for the regression coefficients. It is also
     worth noting that the :math:`\sigma^2` parameter is not sampled directly
-    in the negative binomial regression problem and thus set to 1 [2].
+    in the negative binomial regression problem and thus set to 1 [2]_.
 
     References
     ----------
-    ..[1] Makalic, Enes & Schmidt, Daniel. (2015). A Simple Sampler for the
+    .. [1] Makalic, Enes & Schmidt, Daniel. (2015). A Simple Sampler for the
           Horseshoe Estimator. 10.1109/LSP.2015.2503725.
-    ..[2] Makalic, Enes & Schmidt, Daniel. (2016). High-Dimensional Bayesian
+    .. [2] Makalic, Enes & Schmidt, Daniel. (2016). High-Dimensional Bayesian
           Regularised Regression with the BayesReg Package.
-    ..[3] Neelon, Brian. (2019). Bayesian Zero-Inflated Negative Binomial
+    .. [3] Neelon, Brian. (2019). Bayesian Zero-Inflated Negative Binomial
           Regression Based on Pólya-Gamma Mixtures. Bayesian Anal.
           2019 September ; 14(3): 829–855. doi:10.1214/18-ba1132.
 
@@ -317,7 +315,7 @@ def nbinom_horseshoe_gibbs(
         X: TensorVariable,
         h: TensorVariable,
     ) -> Tuple[TensorVariable, TensorVariable, TensorVariable]:
-        """Complete one full update of the gibbs sampler and return the new state
+        """Complete one full update of the Gibbs sampler and return the new state
         of the posterior conditional parameters.
 
         Parameters
@@ -414,32 +412,32 @@ def bernoulli_horseshoe_match(
 def bernoulli_horseshoe_gibbs(
     srng: RandomStream, Y_rv: TensorVariable, y: TensorVariable, num_samples: int
 ) -> Tuple[Union[TensorVariable, List[TensorVariable]], Dict]:
-    r"""Build a Gibbs sampler for bernoulli (logistic) regression with a horseshoe prior.
+    r"""Build a Gibbs sampler for Bernoulli (logistic) regression with a horseshoe prior.
 
-    The implementation follows the sampler described in [1]. It is designed to
+    The implementation follows the sampler described in [1]_. It is designed to
     sample efficiently from the following binary logistic regression model:
 
     .. math::
 
         \begin{align*}
-            y_i &\sim \operatorname{Bernoulli}\left(\pi_i\right)\\
-            \pi &= \frac{1}{1 + \exp\left(-(\beta_0 + x_i^T\,\beta)\right)}\\
-            \beta_j &\sim \operatorname{Normal}(0, \lambda_j^2\;\tau^2)\\
-            \lambda_j &\sim \operatorname{HalfCauchy}(0, 1)\\
+            Y_i &\sim \operatorname{Bern}\left(p_i\right) \\
+            p_i &= \frac{1}{1 + \exp\left(-(\beta_0 + x_i^\top \beta)\right)} \\
+            \beta_j &\sim \operatorname{N}(0, \lambda_j^2 \tau^2) \\
+            \lambda_j &\sim \operatorname{HalfCauchy}(0, 1) \\
             \tau &\sim \operatorname{HalfCauchy}(0, 1)
         \end{align*}
 
     Parameters
     ----------
-    srng: symbolic random number generator
+    srng
         The random number generating object to be used during sampling.
     Y_rv
         Model graph.
-    y: TensorVariable
+    y
         The observed binary data.
-    X: TensorVariable
+    X
         The covariate matrix.
-    n_samples: TensorVariable
+    n_samples
         A tensor describing the number of posterior samples to generate.
 
     Returns
@@ -451,9 +449,9 @@ def bernoulli_horseshoe_gibbs(
 
     References
     ----------
-    ..[1] Makalic, Enes & Schmidt, Daniel. (2015). A Simple Sampler for the
+    .. [1] Makalic, Enes & Schmidt, Daniel. (2015). A Simple Sampler for the
           Horseshoe Estimator. 10.1109/LSP.2015.2503725.
-    ..[2] Makalic, Enes & Schmidt, Daniel. (2016). High-Dimensional Bayesian
+    .. [2] Makalic, Enes & Schmidt, Daniel. (2016). High-Dimensional Bayesian
           Regularised Regression with the BayesReg Package.
 
     """
@@ -465,7 +463,7 @@ def bernoulli_horseshoe_gibbs(
         y: TensorVariable,
         X: TensorVariable,
     ) -> Tuple[TensorVariable, TensorVariable, TensorVariable]:
-        """Complete one full update of the gibbs sampler and return the new
+        """Complete one full update of the Gibbs sampler and return the new
         state of the posterior conditional parameters.
 
         Parameters
@@ -476,9 +474,9 @@ def bernoulli_horseshoe_gibbs(
             Square of the local shrinkage parameter of the horseshoe prior.
         tau
             Square of the global shrinkage parameters of the horseshoe prior.
-        y: TensorVariable
+        y
             The observed binary data
-        X: TensorVariable
+        X
             The covariate matrix.
 
         """
