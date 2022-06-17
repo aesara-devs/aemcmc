@@ -3,12 +3,15 @@ from typing import Dict, List, Tuple, Union
 import aesara
 import aesara.tensor as at
 from aesara.graph import optimize_graph
+from aesara.graph.opt import EquilibriumOptimizer
 from aesara.graph.unify import eval_if_etuple
 from aesara.ifelse import ifelse
 from aesara.tensor.math import Dot
 from aesara.tensor.random import RandomStream
+from aesara.tensor.random.opt import local_dimshuffle_rv_lift
 from aesara.tensor.var import TensorVariable
 from etuples import etuple, etuplize
+from etuples.core import ExpressionTuple
 from unification import unify, var
 
 from aemcmc.dists import (
@@ -16,6 +19,18 @@ from aemcmc.dists import (
     multivariate_normal_rue2005,
     polyagamma,
 )
+
+
+def canonicalize_and_tuplize(graph: TensorVariable) -> ExpressionTuple:
+    """Canonicalize and etuple-ize a graph."""
+    graph_opt = optimize_graph(
+        graph,
+        custom_opt=EquilibriumOptimizer(
+            [local_dimshuffle_rv_lift], max_use_ratio=aesara.config.optdb__max_use_ratio
+        ),
+    )
+    graph_et = etuplize(graph_opt)
+    return graph_et
 
 
 def update_beta_low_dimension(
@@ -88,8 +103,8 @@ def horseshoe_model(srng: TensorVariable) -> TensorVariable:
 
 
 def horseshoe_match(graph: TensorVariable) -> Tuple[TensorVariable, TensorVariable]:
-    graph_opt = optimize_graph(graph)
-    graph_et = etuplize(graph_opt)
+
+    graph_et = canonicalize_and_tuplize(graph)
 
     s = unify(graph_et, horseshoe_pattern)
     if s is False:

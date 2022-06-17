@@ -22,24 +22,39 @@ def srng():
     return RandomStream(1234)
 
 
-def test_match_horseshoe(srng):
-    horseshoe_match(horseshoe_model(srng))
+def test_horseshoe_match(srng):
 
-    # exchanging tau and lmbda in the product
-    size = at.scalar("size", dtype="int32")
-    tau_rv = srng.halfcauchy(0, 1, size=1)
-    lmbda_rv = srng.halfcauchy(0, 1, size=size)
-    beta_rv = srng.normal(0, lmbda_rv * tau_rv, size=size)
-    horseshoe_match(beta_rv)
+    size = at.lscalar("size")
+    # Vector tau
+    tau_rv = srng.halfcauchy(0, 1, size=1, name="tau")
+    lmbda_rv = srng.halfcauchy(0, 1, size=size, name="lambda")
+    beta_rv = srng.normal(0, lmbda_rv * tau_rv, size=size, name="beta")
+
+    lambda_res, tau_res = horseshoe_match(beta_rv)
+
+    assert lambda_res is lmbda_rv
+    assert tau_res is tau_rv
+
+    # Scalar tau
+    tau_rv = srng.halfcauchy(0, 1, name="tau")
+    lmbda_rv = srng.halfcauchy(0, 1, size=size, name="lambda")
+    beta_rv = srng.normal(0, lmbda_rv * tau_rv, size=size, name="beta")
+
+    lambda_res, tau_res = horseshoe_match(beta_rv)
+
+    assert lambda_res is lmbda_rv
+    # `tau_res` should've had its `DimShuffle` lifted, so it's not identical to `tau_rv`
+    assert isinstance(tau_res.owner.op, type(tau_rv.owner.op))
+    assert tau_res.type.ndim == 1
 
 
-def test_match_horseshoe_wrong_graph(srng):
+def test_horseshoe_match_wrong_graph(srng):
     beta_rv = srng.normal(0, 1)
     with pytest.raises(ValueError):
         horseshoe_match(beta_rv)
 
 
-def test_match_horseshoe_wrong_local_scale_dist(srng):
+def test_horseshoe_match_wrong_local_scale_dist(srng):
     size = at.scalar("size", dtype="int32")
     tau_rv = srng.halfcauchy(0, 1, size=1)
     lmbda_rv = srng.normal(0, 1, size=size)
@@ -48,7 +63,7 @@ def test_match_horseshoe_wrong_local_scale_dist(srng):
         horseshoe_match(beta_rv)
 
 
-def test_match_horseshoe_wrong_global_scale_dist(srng):
+def test_horseshoe_match_wrong_global_scale_dist(srng):
     size = at.scalar("size", dtype="int32")
     tau_rv = srng.normal(0, 1, size=1)
     lmbda_rv = srng.halfcauchy(0, 1, size=size)
@@ -57,7 +72,7 @@ def test_match_horseshoe_wrong_global_scale_dist(srng):
         horseshoe_match(beta_rv)
 
 
-def test_match_horseshoe_wrong_dimensions(srng):
+def test_horseshoe_match_wrong_dimensions(srng):
     size = at.scalar("size", dtype="int32")
     tau_rv = srng.halfcauchy(0, 1, size=size)
     lmbda_rv = srng.halfcauchy(0, 1, size=size)
