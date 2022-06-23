@@ -14,16 +14,13 @@ def beta_binomial_conjugateo(observed_rv_expr, posterior_expr):
 
     .. math::
 
-        \begin{align*}
-            p &\sim \operatorname{Beta}\left(\alpha, \beta\right)\\
-            y &\sim \operatorname{Binomial}\left(n, p\right)
-        \end{align*}
+        \frac{
+            Y \sim \operatorname{Binom}\left(N, p\right), \quad
+            p \sim \operatorname{Beta}\left(\alpha, \beta\right)
+        }{
+            \left(p|Y=y\right) \sim \operatorname{Beta}\left(\alpha+y, \beta+N-y\right)
+        }
 
-    If we observe :math:`y=Y`, then :math:`p` follows a beta distribution:
-
-    .. math::
-
-        p \sim \operatorname{Beta}\left(\alpha + Y, \beta + n - Y\right)
 
     Parameters
     ----------
