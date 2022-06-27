@@ -13,9 +13,9 @@ class ModelInfo:
     """Observed random/measurable variables."""
     rvs_to_values: Dict[TensorVariable, TensorVariable]
     """A map between random/measurable variables and their value variables."""
-    deterministic_vars: Tuple[TensorVariable, ...]
+    deterministic_vars: Tuple[TensorVariable, ...] = field(default_factory=tuple)
     """Stochastic variables that are tracked but not sampled directly/explicitly."""
-    updates: Optional[Dict[Variable, TensorVariable]]
+    updates: Optional[Dict[Variable, TensorVariable]] = field(default_factory=dict)
     """Updates to be passed to `aesara.function`."""
 
     values_to_rvs: Dict[TensorVariable, TensorVariable] = field(init=False)

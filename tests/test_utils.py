@@ -38,6 +38,13 @@ def test_ModelInfo_maps():
     assert amodel.observed_values == (y_vv,)
     assert amodel.unobserved_rvs == (beta_rv,)
     assert amodel.unobserved_values == (beta_vv,)
+    assert amodel.updates == {}
+    assert set(amodel.names_to_vars.values()) == set((Y_rv, beta_rv, mu, y_vv, beta_vv))
+
+    smodel = ModelInfo(observed_rvs, rvs_to_values)
+    assert smodel.deterministic_vars == ()
+    assert smodel.updates == {}
+    assert set(smodel.names_to_vars.values()) == set((Y_rv, beta_rv, y_vv, beta_vv))
 
 
 def test_ModelInfo_errors():
