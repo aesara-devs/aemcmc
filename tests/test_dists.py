@@ -54,32 +54,55 @@ def test_multivariate_normal_rue2005():
 
 def test_multivariate_normal_bhattacharya2016():
     nrng = np.random.default_rng(54321)
-    X = nrng.standard_normal(size=10 * 5)
-    X.resize((10, 5))
-    XX = X.T @ X
-    D, phi = np.linalg.eigh(XX)
-    alpha = nrng.random(phi.shape[1])
+    X = nrng.standard_normal(size=(50, 100))
+    phi = np.linalg.cholesky(X @ X.T).T
+    D = nrng.random(phi.shape[1])
+    alpha = nrng.random(phi.shape[0])
+    precision = phi.T @ phi
+    precision[np.diag_indices_from(precision)] += 1.0 / D
+    cov = np.linalg.inv(precision)
+    mean = cov @ phi.T @ alpha
 
     srng = at.random.RandomStream(12345)
-    got = multivariate_normal_bhattacharya2016(
-        srng, at.as_tensor(D), at.as_tensor(phi), at.as_tensor(alpha)
-    )
-    expected_shape = (5,)
-    np.testing.assert_allclose(np.shape(got.eval()), expected_shape)
+
+    def update():
+        return multivariate_normal_bhattacharya2016(
+            srng, at.as_tensor(D), at.as_tensor(phi), at.as_tensor(alpha)
+        )
+
+    samples_out, updates = aesara.scan(update, n_steps=10000)
+    sampling_fn = aesara.function((), samples_out, updates=updates)
+    samples = sampling_fn()
+
+    np.testing.assert_allclose(np.mean(samples, axis=0), mean, atol=0.05)
+    np.testing.assert_allclose(np.var(samples, axis=0, ddof=1), np.diag(cov), atol=0.05)
 
 
 def test_multivariate_normal_cong2017():
     nrng = np.random.default_rng(54321)
-    X = nrng.standard_normal(size=10 * 5)
-    X.resize((10, 5))
-    XX = X.T @ X
-    omega, phi = np.linalg.eigh(XX)
+    X = nrng.standard_normal(size=(50, 100))
+    omega, phi = np.linalg.eigh(X @ X.T)
     A = nrng.random(phi.shape[1])
     t = nrng.random(phi.shape[1])
 
+    phi_omega = phi * omega
+    cov = np.linalg.inv(A + phi_omega @ phi.T)
+    mean = cov @ phi_omega @ t
+
     srng = at.random.RandomStream(12345)
-    got = multivariate_normal_cong2017(
-        srng, at.as_tensor(A), at.as_tensor(omega), at.as_tensor(phi), at.as_tensor(t)
-    )
-    expected_shape = (5,)
-    np.testing.assert_allclose(np.shape(got.eval()), expected_shape)
+
+    def update():
+        return multivariate_normal_cong2017(
+            srng,
+            at.as_tensor(A),
+            at.as_tensor(omega),
+            at.as_tensor(phi.T),
+            at.as_tensor(t),
+        )
+
+    samples_out, updates = aesara.scan(update, n_steps=10000)
+    sampling_fn = aesara.function((), samples_out, updates=updates)
+    samples = sampling_fn()
+
+    np.testing.assert_allclose(np.mean(samples, axis=0), mean, atol=0.05)
+    np.testing.assert_allclose(np.var(samples, axis=0, ddof=1), np.diag(cov), atol=0.05)
