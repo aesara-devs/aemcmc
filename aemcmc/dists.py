@@ -82,31 +82,3 @@ def multivariate_normal_cong2017(rng, A, omega, phi, t):
     )
     alpha = at.linalg.solve(B, t - phi @ y1 - y2, assume_a="pos")
     return y1 + Ainv_phi @ alpha
-
-
-def multivariate_normal_bhattacharya2016(rng, D, phi, alpha):
-    """
-    Sample from a multivariable normal distribution of the form:
-        N(Sigma * phi.T * alpha, Sigma),
-        where Sigma = inv(phi.T * phi + inv(D)) and D is positive definite.
-
-    This implementation assumes that D is a symmetric matrix and the parameter
-    ``D`` is expected to be an array containing diagonal entries of the D matrix.
-
-    References
-    ----------
-    ..[1] Bhattacharya, A., Chakraborty, A., and Mallick, B. K. (2016).
-          “Fast sampling with Gaussian scale mixture priors in high-dimensional
-          regression.” Biometrika, 103(4): 985.033
-    """
-    D_phi = D[:, None] * phi.T
-    B = phi @ D_phi
-    indices = at.arange(B.shape[0])
-    B = at.subtensor.set_subtensor(
-        B[indices, indices],
-        at.diag(B) + 1.0,
-    )
-    u = rng.normal(0, at.sqrt(D))
-    v = phi @ u + rng.standard_normal(size=phi.shape[0])
-    w = at.linalg.solve(B, alpha - v, assume_a="pos")
-    return u + D_phi @ w
