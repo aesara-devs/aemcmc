@@ -2,7 +2,9 @@ import aesara
 import aesara.tensor as at
 import numpy as np
 from aesara.sparse.basic import _is_sparse_variable, dense_from_sparse
+from aesara.tensor.random import RandomStream
 from aesara.tensor.random.op import RandomVariable
+from aesara.tensor.var import TensorVariable
 from polyagamma import random_polyagamma
 
 
@@ -50,23 +52,83 @@ def multivariate_normal_rue2005(rng, b, Q):
     return u + v
 
 
-# A and omega are assumed to be diagonal
-def multivariate_normal_cong2017(rng, A, omega, phi, t):
-    """
-    Sample from a multivariate normal distribution with a structured mean
-    and covariance matrix, as described in Example 4 [page 17] of [1]. This
-    algorithm is suitable for high-dimensional regression problems and the
-    runtime scales linearly with the number of regression coefficients.
+def multivariate_normal_cong2017(
+    rng: RandomStream,
+    A: TensorVariable,
+    omega: TensorVariable,
+    phi: TensorVariable,
+    t: TensorVariable,
+) -> TensorVariable:
+    r"""
+    Sample from a multivariate normal distribution with a structured mean and covariance.
 
-    This implementation assumes that A and omega are  diagonal matrices and
-    the parameters ``A`` and ``omega`` are expected to be an arrays containing
-    diagonal entries of the matrices.
+    As described in Example 4 [page 17] of [1], The covariance of this normal
+    distribution should be decomposable into a sum of a positive-definite matrix
+    and a low-rank symmetric matrix such that:
+
+    .. math::
+
+         \mathcal{N}(\mathbf{\Lambda}^{-1}\mathbf{\Phi}^T\mathbf{\Omega t}, \mathbf{\Lambda}^{-1})
+
+    where
+
+    .. math::
+
+        \begin{align*}
+            \mathbf{\Lambda} = (\mathbf{A}+\mathbf{\Phi}^T\mathbf{\Omega \Phi})
+        \end{align*}
+
+    and :math:`\mathbf{A}` is the positive-definite part and
+    :math:`\mathbf{\Phi}^T\mathbf{\Omega \Phi}` is the eigen-factorization of
+    the low-rank part of the "structured" covariance.
+
+    Parameters
+    ----------
+    rng: TensorVariable
+        The random number generating object to be used during sampling.
+    A: TensorVariable
+        The entries of the diagonal elements of the positive-definite part of
+        the structured covariance.
+    omega: TensorVariable
+        The elements of the diagonal matrix in the eigen-decomposition of the
+        low-rank part of the structured covariancec of the multivariate normal
+        distribution.
+    phi: TensorVariable
+        A matrix containing the eigenvectors of the eigen-decomposition of the
+        low-rank part of the structured covariance of the normal distribution.
+    t: TensorVariable
+        A 1D array whose length is the number of eigenvalues of the low-rank
+        part of the structured covariance.
+
+    Notes
+    -----
+    This algorithm is suitable for high-dimensional regression problems and the
+    runtime scales linearly with the number of regression coefficients. This
+    implementation assumes that `A` and `omega` are diagonal matrices and
+    the parameters `A` and ``omega`` are expected to be vectors that contain
+    diagonal entries of the respective matrices they represent.
+
+    Note the the algorithm described in [2]_ is a special case when `omega` is
+    the identity matrix. Samples from the algorithm described in [2]_ can be
+    generated using the following:
+
+    .. code::
+
+        rng = at.random.RandomStream(12345)
+        X = rng.standard_normal(size=(50, 100))
+        phi = at.linalg.cholesky(X @ X.T).T
+        D = rng.random(phi.shape[1])
+        alpha = rng.random(phi.shape[0])
+        multivariate_normal_cong2017(rng, 1 / D, at.ones(phi.shape[0]), phi, alpha)
 
     References
     ----------
     ..[1] Cong, Yulai; Chen, Bo; Zhou, Mingyuan. Fast Simulation of Hyperplane-
           Truncated Multivariate Normal Distributions. Bayesian Anal. 12 (2017),
           no. 4, 1017--1037. doi:10.1214/17-BA1052.
+    ..[2] Bhattacharya, A., Chakraborty, A., and Mallick, B. K. (2016).
+          “Fast sampling with Gaussian scale mixture priors in high-dimensional
+          regression.” Biometrika, 103(4): 985.033
     """
     A_inv = 1 / A
     a_rows = A.shape[0]
@@ -74,6 +136,9 @@ def multivariate_normal_cong2017(rng, A, omega, phi, t):
     y1 = at.sqrt(A_inv) * z[:a_rows]
     y2 = (1 / at.sqrt(omega)) * z[a_rows:]
     Ainv_phi = A_inv[:, None] * phi.T
+    # NOTE: B is equivalent to B = phi @ Ainv_phi + at.diag(1 / omega), but
+    # may be sligthly more efficient since we do not allocate memory for the
+    # full inverse of omega but instead use just the diagonal elements.
     B = phi @ Ainv_phi
     indices = at.arange(B.shape[0])
     B = at.subtensor.set_subtensor(
