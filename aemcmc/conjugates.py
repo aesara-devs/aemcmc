@@ -1,11 +1,9 @@
 import aesara.tensor as at
+from aeppl.opt import NoCallbackEquilibriumDB
 from aesara.graph.kanren import KanrenRelationSub
-from aesara.graph.optdb import OptimizationDatabase
 from etuples import etuple, etuplize
 from kanren import eq, lall
 from unification import var
-
-conjugatesdb = OptimizationDatabase()
 
 
 def beta_binomial_conjugateo(observed_rv_expr, posterior_expr):
@@ -67,4 +65,7 @@ def beta_binomial_conjugateo(observed_rv_expr, posterior_expr):
     )
 
 
-conjugatesdb.register("beta_binomial", KanrenRelationSub(beta_binomial_conjugateo))
+conjugates_db = NoCallbackEquilibriumDB()
+conjugates_db.register(
+    "beta_binomial", KanrenRelationSub(beta_binomial_conjugateo), -5, "basic"
+)
