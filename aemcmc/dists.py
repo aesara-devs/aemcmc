@@ -53,6 +53,7 @@ def multivariate_normal_rue2005(rng, b, Q):
     w = at.slinalg.solve_triangular(L, b, lower=True)
     u = at.slinalg.solve_triangular(L.T, w, lower=False)
     z = rng.standard_normal(size=L.shape[0])
+    z.owner.outputs[0].name = "z_rng"
     v = at.slinalg.solve_triangular(L.T, z, lower=False)
     return u + v
 
@@ -135,6 +136,7 @@ def multivariate_normal_cong2017(
     A_inv = 1 / A
     a_rows = A.shape[0]
     z = rng.standard_normal(size=a_rows + omega.shape[0])
+    z.owner.outputs[0].name = "z_rng"
     y1 = at.sqrt(A_inv) * z[:a_rows]
     y2 = (1 / at.sqrt(omega)) * z[a_rows:]
     Ainv_phi = A_inv[:, None] * phi.T

@@ -1,12 +1,16 @@
 import aesara.tensor as at
-from aeppl.opt import NoCallbackEquilibriumDB
-from aesara.graph.kanren import KanrenRelationSub
+from aesara.graph.opt import in2out, local_optimizer
+from aesara.graph.optdb import LocalGroupDB
+from aesara.graph.unify import eval_if_etuple
+from aesara.tensor.random.basic import BinomialRV
 from etuples import etuple, etuplize
-from kanren import eq, lall
+from kanren import eq, lall, run
 from unification import var
 
+from aemcmc.opt import sampler_finder_db
 
-def beta_binomial_conjugateo(observed_rv_expr, posterior_expr):
+
+def beta_binomial_conjugateo(observed_val, observed_rv_expr, posterior_expr):
     r"""Produce a goal that represents the application of Bayes theorem
     for a beta prior with a binomial observation model.
 
@@ -22,15 +26,15 @@ def beta_binomial_conjugateo(observed_rv_expr, posterior_expr):
 
     Parameters
     ----------
+    observed_val
+        The observed value.
     observed_rv_expr
-        A tuple that contains expressions that represent the observed variable
-        and it observed value respectively.
+        An expression that represents the observed variable.
     posterior_exp
         An expression that represents the posterior distribution of the latent
         variable.
 
     """
-
     # Beta-binomial observation model
     alpha_lv, beta_lv = var(), var()
     p_rng_lv = var()
@@ -42,12 +46,10 @@ def beta_binomial_conjugateo(observed_rv_expr, posterior_expr):
     n_lv = var()
     Y_et = etuple(etuplize(at.random.binomial), var(), var(), var(), n_lv, p_et)
 
-    y_lv = var()  # observation
-
     # Posterior distribution for p
-    new_alpha_et = etuple(etuplize(at.add), alpha_lv, y_lv)
+    new_alpha_et = etuple(etuplize(at.add), alpha_lv, observed_val)
     new_beta_et = etuple(
-        etuplize(at.sub), etuple(etuplize(at.add), beta_lv, n_lv), y_lv
+        etuplize(at.sub), etuple(etuplize(at.add), beta_lv, n_lv), observed_val
     )
     p_posterior_et = etuple(
         etuplize(at.random.beta),
@@ -59,13 +61,47 @@ def beta_binomial_conjugateo(observed_rv_expr, posterior_expr):
     )
 
     return lall(
-        eq(observed_rv_expr[0], Y_et),
-        eq(observed_rv_expr[1], y_lv),
+        eq(observed_rv_expr, Y_et),
         eq(posterior_expr, p_posterior_et),
     )
 
 
-conjugates_db = NoCallbackEquilibriumDB()
-conjugates_db.register(
-    "beta_binomial", KanrenRelationSub(beta_binomial_conjugateo), -5, "basic"
+@local_optimizer([BinomialRV])
+def local_beta_binomial_posterior(fgraph, node):
+
+    sampler_mappings = getattr(fgraph, "sampler_mappings", None)
+
+    rv_var = node.outputs[1]
+    key = ("local_beta_binomial_posterior", rv_var)
+
+    if sampler_mappings is None or key in sampler_mappings.rvs_seen:
+        return None  # pragma: no cover
+
+    q = var()
+
+    rv_et = etuplize(rv_var)
+
+    res = run(None, q, beta_binomial_conjugateo(rv_var, rv_et, q))
+    res = next(res, None)
+
+    if res is None:
+        return None  # pragma: no cover
+
+    beta_rv = rv_et[-1].evaled_obj
+    beta_posterior = eval_if_etuple(res)
+
+    sampler_mappings.rvs_to_samplers.setdefault(beta_rv, []).append(
+        ("local_beta_binomial_posterior", beta_posterior, None)
+    )
+    sampler_mappings.rvs_seen.add(key)
+
+    return rv_var.owner.outputs
+
+
+conjugates_db = LocalGroupDB(apply_all_opts=True)
+conjugates_db.name = "conjugates_db"
+conjugates_db.register("beta_binomial", local_beta_binomial_posterior, "basic")
+
+sampler_finder_db.register(
+    "conjugates", in2out(conjugates_db.query("+basic"), name="gibbs"), "basic"
 )

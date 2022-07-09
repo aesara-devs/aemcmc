@@ -1,18 +1,17 @@
-from typing import Dict, List, Mapping, Tuple, Union
+from typing import List, Mapping, Optional, Tuple
 
 import aesara
 import aesara.tensor as at
-from aesara.graph import optimize_graph
 from aesara.graph.basic import Variable
-from aesara.graph.opt import EquilibriumOptimizer
+from aesara.graph.opt import in2out
+from aesara.graph.optdb import LocalGroupDB
 from aesara.graph.unify import eval_if_etuple
 from aesara.ifelse import ifelse
 from aesara.tensor.math import Dot
 from aesara.tensor.random import RandomStream
-from aesara.tensor.random.opt import local_dimshuffle_rv_lift
+from aesara.tensor.random.basic import BernoulliRV, NegBinomialRV, NormalRV
 from aesara.tensor.var import TensorVariable
 from etuples import etuple, etuplize
-from etuples.core import ExpressionTuple
 from unification import unify, var
 
 from aemcmc.dists import (
@@ -20,21 +19,13 @@ from aemcmc.dists import (
     multivariate_normal_rue2005,
     polyagamma,
 )
+from aemcmc.opt import sampler_finder, sampler_finder_db
+
+gibbs_db = LocalGroupDB(apply_all_opts=True)
+gibbs_db.name = "gibbs_db"
 
 
-def canonicalize_and_tuplize(graph: TensorVariable) -> ExpressionTuple:
-    """Canonicalize and etuple-ize a graph."""
-    graph_opt = optimize_graph(
-        graph,
-        custom_opt=EquilibriumOptimizer(
-            [local_dimshuffle_rv_lift], max_use_ratio=aesara.config.optdb__max_use_ratio
-        ),
-    )
-    graph_et = etuplize(graph_opt)
-    return graph_et
-
-
-def update_beta_low_dimension(
+def normal_regression_overdetermined_posterior(
     srng: RandomStream,
     omega: TensorVariable,
     lmbdatau_inv: TensorVariable,
@@ -57,7 +48,7 @@ def update_beta_low_dimension(
     return multivariate_normal_rue2005(srng, X.T @ (omega * z), Q)
 
 
-def update_beta_high_dimension(
+def normal_regression_underdetermined_posterior(
     srng: RandomStream,
     omega: TensorVariable,
     lmbdatau_inv: TensorVariable,
@@ -74,7 +65,7 @@ def update_beta_high_dimension(
     return multivariate_normal_cong2017(srng, lmbdatau_inv, omega, X, z)
 
 
-def update_beta(
+def normal_regression_posterior(
     srng: RandomStream,
     omega: TensorVariable,
     lmbdatau_inv: TensorVariable,
@@ -100,7 +91,7 @@ def update_beta(
 
         \begin{align*}
             \left( \beta \mid Z = z \right) &\sim
-                \operatorname{N}\left( A^{-1} X^{\top} \Omega, A^{-1} \right) \\
+                \operatorname{N}\left( A^{-1} X^{\top} \Omega z, A^{-1} \right) \\
             A &= X^{\top} X + \Lambda^{-1}_{*} \\
             \Lambda_{*} &= \tau^2 \Lambda
         \end{align*}
@@ -131,8 +122,8 @@ def update_beta(
     """
     return ifelse(
         X.shape[1] > X.shape[0],
-        update_beta_high_dimension(srng, omega, lmbdatau_inv, X, z),
-        update_beta_low_dimension(srng, omega, lmbdatau_inv, X, z),
+        normal_regression_underdetermined_posterior(srng, omega, lmbdatau_inv, X, z),
+        normal_regression_overdetermined_posterior(srng, omega, lmbdatau_inv, X, z),
     )
 
 
@@ -148,26 +139,9 @@ horseshoe_pattern = etuple(
 )
 
 
-def horseshoe_model(srng: TensorVariable) -> TensorVariable:
-    """Horseshoe shrinkage prior [1]_.
-
-    References
-    ----------
-    .. [1]: Carvalho, C. M., Polson, N. G., & Scott, J. G. (2010).
-            The horseshoe estimator for sparse signals.
-            Biometrika, 97(2), 465-480.
-
-    """
-    size = at.scalar("size", dtype="int32")
-    tau_rv = srng.halfcauchy(0, 1, size=1)
-    lmbda_rv = srng.halfcauchy(0, 1, size=size)
-    beta_rv = srng.normal(0, tau_rv * lmbda_rv, size=size)
-    return beta_rv
-
-
 def horseshoe_match(graph: TensorVariable) -> Tuple[TensorVariable, TensorVariable]:
 
-    graph_et = canonicalize_and_tuplize(graph)
+    graph_et = etuplize(graph)
 
     s = unify(graph_et, horseshoe_pattern)
     if s is False:
@@ -192,10 +166,10 @@ def horseshoe_match(graph: TensorVariable) -> Tuple[TensorVariable, TensorVariab
             + "in your model is not half-Cauchy distributed."
         )
 
-    if halfcauchy_1.type.shape == (1,):
+    if halfcauchy_1.type.ndim == 0 or all(s == 1 for s in halfcauchy_1.type.shape):
         lmbda_rv = halfcauchy_2
         tau_rv = halfcauchy_1
-    elif halfcauchy_2.type.shape == (1,):
+    elif halfcauchy_2.type.ndim == 0 or all(s == 1 for s in halfcauchy_2.type.shape):
         lmbda_rv = halfcauchy_1
         tau_rv = halfcauchy_2
     else:
@@ -207,7 +181,7 @@ def horseshoe_match(graph: TensorVariable) -> Tuple[TensorVariable, TensorVariab
     return (lmbda_rv, tau_rv)
 
 
-def horseshoe_step(
+def horseshoe_posterior(
     srng: RandomStream,
     beta: TensorVariable,
     sigma: TensorVariable,
@@ -269,6 +243,51 @@ def horseshoe_step(
     return lmbda_inv_new, tau_inv_new
 
 
+@sampler_finder([NormalRV])
+def normal_horseshoe_finder(fgraph, node, srng):
+    r"""Find and construct a Gibbs sampler for the normal-Horseshoe model.
+
+    The implementation follows the sampler described in [1]_. It is designed to
+    sample efficiently from the following model:
+
+    .. math::
+
+        \begin{align*}
+            \beta_i &\sim \operatorname{N}(0, \lambda_i^2 \tau^2) \\
+            \lambda_i &\sim \operatorname{C}^{+}(0, 1) \\
+            \tau &\sim \operatorname{C}^{+}(0, 1)
+        \end{align*}
+
+    References
+    ----------
+    .. [1] Makalic, Enes & Schmidt, Daniel. (2015). A Simple Sampler for the
+          Horseshoe Estimator. 10.1109/LSP.2015.2503725.
+
+    """
+
+    rv_var = node.outputs[1]
+
+    try:
+        lambda_rv, tau_rv = horseshoe_match(node.outputs[1])
+    except ValueError:  # pragma: no cover
+        return None
+
+    lambda_posterior, tau_posterior = horseshoe_posterior(
+        srng, rv_var, 1.0, lambda_rv, tau_rv
+    )
+
+    if lambda_rv.name:
+        lambda_posterior.name = f"{lambda_rv.name}_posterior"
+
+    if tau_rv.name:
+        tau_posterior.name = f"{tau_rv.name}_posterior"
+
+    return [(lambda_rv, lambda_posterior, None), (tau_rv, tau_posterior, None)]
+
+
+gibbs_db.register("normal_horseshoe", normal_horseshoe_finder, "basic")
+
+
 X_lv = var()
 beta_lv = var()
 neg_one_lv = var()
@@ -283,11 +302,9 @@ b_lv = var()
 gamma_pattern = etuple(etuplize(at.random.gamma), var(), var(), var(), a_lv, b_lv)
 
 
-def gamma_match(
-    graph: TensorVariable,
-) -> Tuple[TensorVariable, TensorVariable]:
-    graph_opt = optimize_graph(graph)
-    graph_et = etuplize(graph_opt)
+def gamma_match(graph: TensorVariable) -> Tuple[TensorVariable, TensorVariable]:
+
+    graph_et = etuplize(graph)
     s = unify(graph_et, gamma_pattern)
     if s is False:
         raise ValueError("Not a gamma prior.")
@@ -307,8 +324,8 @@ nbinom_sigmoid_dot_pattern = etuple(
 def nbinom_sigmoid_dot_match(
     graph: TensorVariable,
 ) -> Tuple[TensorVariable, TensorVariable, TensorVariable]:
-    graph_opt = optimize_graph(graph)
-    graph_et = etuplize(graph_opt)
+
+    graph_et = etuplize(graph)
     s = unify(graph_et, nbinom_sigmoid_dot_pattern)
     if s is False:
         raise ValueError("Not a negative binomial regression.")
@@ -324,29 +341,6 @@ def nbinom_sigmoid_dot_match(
     X = eval_if_etuple(s[X_lv])
 
     return X, h, beta_rv
-
-
-def nbinom_horseshoe_model(srng: RandomStream) -> TensorVariable:
-    """Negative binomial regression model with a horseshoe shrinkage prior."""
-    X = at.matrix("X")
-    h = at.scalar("h")
-
-    beta_rv = horseshoe_model(srng)
-    eta = X @ beta_rv
-    p = at.sigmoid(-eta)
-    Y_rv = srng.nbinom(h, p)
-
-    return Y_rv
-
-
-def nbinom_horseshoe_match(
-    Y_rv: TensorVariable,
-) -> Tuple[
-    TensorVariable, TensorVariable, TensorVariable, TensorVariable, TensorVariable
-]:
-    X, h, beta_rv = nbinom_sigmoid_dot_match(Y_rv)
-    lmbda_rv, tau_rv = horseshoe_match(beta_rv)
-    return h, X, beta_rv, lmbda_rv, tau_rv
 
 
 def sample_CRT(
@@ -385,14 +379,14 @@ def sample_CRT(
     return res, updates
 
 
-def h_step(
+def nbinom_dispersion_posterior(
     srng: RandomStream,
     h_last: TensorVariable,
     p: TensorVariable,
     a: TensorVariable,
     b: TensorVariable,
     y: TensorVariable,
-) -> Tuple[TensorVariable, Mapping[Variable, Variable]]:
+) -> Tuple[TensorVariable, Optional[Mapping[Variable, Variable]]]:
     r"""Sample the conditional posterior for the dispersion parameter under a negative-binomial and gamma prior.
 
     In other words, this draws a sample from :math:`h \mid Y = y` per
@@ -404,7 +398,7 @@ def h_step(
             h &\sim \operatorname{Gamma}(a, b)
         \end{align*}
 
-    where `y` is a sample from :math:`y \sim Y`.
+    where :math:`\operatorname{NB}` is a negative-binomial distribution.
 
     The conditional posterior sample step is derived from the following decomposition:
 
@@ -416,7 +410,8 @@ def h_step(
 
     where :math:`\operatorname{Log}` is the logarithmic distribution.  Under a
     gamma prior, :math:`h` is conjugate to :math:`l`.  We draw samples from
-    :math:`l` according to :math:`l \sim \operatorname{CRT(y, h)}`.
+    :math:`l` according to :math:`l \sim \operatorname{CRT(y, h)}`, where
+    :math:`y` is a sample from :math:`y \sim Y`.
 
     The resulting posterior is
 
@@ -426,40 +421,42 @@ def h_step(
             \left(h \mid Y = y\right) \sim \operatorname{Gamma}\left(a + \sum_{i=1}^N l_i, \frac{1}{1/b + \sum_{i=1}^N \log(1 - p_i)} \right)
         \end{gather*}
 
+    Parameters
+    ----------
+    srng
+        The random number generator from which samples are drawn.
+    h_last
+        The previous sample value of :math:`h`.
+    p
+        The success probability parameter in the negative-binomial distribution of :math:`Y`.
+    a
+        The shape parameter in the :math:`\operatorname{Gamma}` prior on :math:`h`.
+    b
+        The rate parameter in the :math:`\operatorname{Gamma}` prior on :math:`h`.
+    y
+        A sample from :math:`Y`.
+
+    Returns
+    -------
+    A sample from the posterior :math:`h \mid y`.
 
     References
     ----------
-    .. [1] Zhou, Mingyuan, Lingbo Li, David Dunson, and Lawrence Carin. 2012. “Lognormal and Gamma Mixed Negative Binomial Regression.” Proceedings of the International Conference on Machine Learning. International Conference on Machine Learning 2012: 1343–50. https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4180062/.
+    .. [1] Zhou, Mingyuan, Lingbo Li, David Dunson, and Lawrence Carin. 2012.
+        “Lognormal and Gamma Mixed Negative Binomial Regression.”
+        Proceedings of the International Conference on Machine Learning.
+        2012: 1343–50. https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4180062/.
 
     """
     Ls, updates = sample_CRT(srng, y, h_last)
     L_sum = Ls.sum(axis=-1)
     h = srng.gamma(a + L_sum, at.reciprocal(b) - at.sum(at.log(1 - p), axis=-1))
-    h.name = f"{h_last.name or 'h'}-posterior"
+    h.name = f"{h_last.name or 'h'}_posterior"
     return h, updates
 
 
-def nbinom_horseshoe_with_dispersion_match(
-    Y_rv: TensorVariable,
-) -> Tuple[
-    TensorVariable,
-    TensorVariable,
-    TensorVariable,
-    TensorVariable,
-    TensorVariable,
-    TensorVariable,
-    TensorVariable,
-]:
-    X, h_rv, beta_rv = nbinom_sigmoid_dot_match(Y_rv)
-    lmbda_rv, tau_rv = horseshoe_match(beta_rv)
-    a, b = gamma_match(h_rv)
-    return X, beta_rv, lmbda_rv, tau_rv, h_rv, a, b
-
-
-def nbinom_horseshoe_gibbs(
-    srng: RandomStream, Y_rv: TensorVariable, y: TensorVariable, num_samples: int
-) -> Tuple[Union[TensorVariable, List[TensorVariable]], Dict]:
-    r"""Build a Gibbs sampler for the negative binomial regression with a horseshoe prior.
+def nbinom_normal_posterior(srng, beta, beta_std, X, h, y):
+    r"""Produce a Gibbs sample step for a negative binomial logistic-link regression with a normal prior.
 
     The implementation follows the sampler described in [1]_. It is designed to
     sample efficiently from the following negative binomial regression model:
@@ -467,37 +464,38 @@ def nbinom_horseshoe_gibbs(
     .. math::
 
         \begin{align*}
-            Y_i &\sim \operatorname{NB}\left(h, p_i\right) \\
-            p_i &= \frac{\exp(\psi_i)}{1 + \exp(\psi_i)} \\
-            \psi_i &= x_i^\top \beta \\
-            \beta_j &\sim \operatorname{N}(0, \lambda_j^2 \tau^2) \\
-            \lambda_j &\sim \operatorname{HalfCauchy}(0, 1) \\
-            \tau &\sim \operatorname{HalfCauchy}(0, 1)
+            Y &\sim \operatorname{NB}\left(h, p\right) \\
+            p &= \frac{\exp(\psi)}{1 + \exp(\psi)} \\
+            \psi &= X^\top \beta \\
+            \beta &\sim \operatorname{N}(0, \lambda^2) \\
         \end{align*}
 
+    where :math:`\operatorname{NB}` is a negative-binomial distribution.
 
     Parameters
     ----------
-    srng: symbolic random number generator
-        The random number generating object to be used during sampling.
-    Y_rv
-        Model graph.
-    y: TensorVariable
-        The observed count data.
-    n_samples: TensorVariable
-        A tensor describing the number of posterior samples to generate.
+    srng
+        The random number generator from which samples are drawn.
+    beta
+        The current/previous value of the regression parameter :math:`beta`.
+    beta_std
+        The std. dev. of the regression parameter :math:`beta`.
+    X
+        The regression matrix.
+    h
+        The :math:`h` parameter in the negative-binomial distribution of :math:`Y`.
+    y
+        A sample from the observation distribution :math:`y \sim Y`.
 
     Returns
     -------
-    (outputs, updates): tuple
-        A symbolic description of the sampling result to be used to
-        compile a sampling function.
+    A sample from the posterior :math:`\beta \mid y`.
 
     Notes
     -----
     The :math:`z` expression in Section 2.2 of [1]_ seems to
     omit division by the Polya-Gamma auxilliary variables whereas [2]_ and [3]_
-    explicitely include it. We found that including the division results in
+    explicitly include it. We found that including the division results in
     accurate posterior samples for the regression coefficients. It is also
     worth noting that the :math:`\sigma^2` parameter is not sampled directly
     in the negative binomial regression problem and thus set to 1 [2]_.
@@ -513,153 +511,83 @@ def nbinom_horseshoe_gibbs(
           2019 September ; 14(3): 829–855. doi:10.1214/18-ba1132.
 
     """
+    # This effectively introduces a new term, `w`, to the model.
+    # TODO: We could/should generate a graph that uses this scale-mixture
+    # "expanded" form and find/create the posteriors from there
+    w = srng.gen(polyagamma, y + h, X @ beta)
+    z = 0.5 * (y - h) / w
 
-    def nbinom_horseshoe_step(
-        beta: TensorVariable,
-        lmbda: TensorVariable,
-        tau: TensorVariable,
-        y: TensorVariable,
-        X: TensorVariable,
-        h: TensorVariable,
-    ) -> Tuple[TensorVariable, TensorVariable, TensorVariable]:
-        """Complete one full update of the Gibbs sampler and return the new state
-        of the posterior conditional parameters.
+    tau_beta = at.reciprocal(beta_std)
 
-        Parameters
-        ----------
-        beta: Tensorvariable
-            Coefficients (other than intercept) of the regression model.
-        lmbda
-            Inverse of the local shrinkage parameter of the horseshoe prior.
-        tau
-            Inverse of the global shrinkage parameters of the horseshoe prior.
-        y: TensorVariable
-            The observed count data.
-        X: TensorVariable
-            The covariate matrix.
-        h: TensorVariable
-            The "number of successes" parameter of the negative binomial disribution
-            used to model the data.
+    beta_posterior = normal_regression_posterior(srng, w, tau_beta, X, z)
 
-        """
-        xb = X @ beta
-        w = srng.gen(polyagamma, y + h, xb)
-        z = 0.5 * (y - h) / w
+    if beta.name:
+        beta_posterior.name = f"{beta.name}_posterior"
 
-        lmbda_inv = 1.0 / lmbda
-        tau_inv = 1.0 / tau
-        beta_new = update_beta(srng, w, lmbda_inv * tau_inv, X, z)
-
-        lmbda_inv_new, tau_inv_new = horseshoe_step(
-            srng, beta_new, 1.0, lmbda_inv, tau_inv
-        )
-        return beta_new, 1.0 / lmbda_inv_new, 1.0 / tau_inv_new
-
-    h, X, beta_rv, lmbda_rv, tau_rv = nbinom_horseshoe_match(Y_rv)
-
-    outputs, updates = aesara.scan(
-        nbinom_horseshoe_step,
-        outputs_info=[beta_rv, lmbda_rv, tau_rv],
-        non_sequences=[y, X, h],
-        n_steps=num_samples,
-        strict=True,
-    )
-
-    return outputs, updates
+    return beta_posterior
 
 
-def nbinom_horseshoe_gibbs_with_dispersion(
-    srng: RandomStream,
-    Y_rv: TensorVariable,
-    y: TensorVariable,
-    num_samples: TensorVariable,
-) -> Tuple[Union[TensorVariable, List[TensorVariable]], Mapping[Variable, Variable]]:
-    r"""Build a Gibbs sampler for the negative binomial regression with a horseshoe prior and gamma prior dispersion.
+@sampler_finder([NegBinomialRV])
+def nbinom_logistic_finder(fgraph, node, srng):
+    r"""Find and construct a Gibbs sampler for a negative-binomial logistic-link regression.
 
-    This is a direct extension of `nbinom_horseshoe_gibbs_with_dispersion` that
-    adds a gamma prior assumption to the :math:`h` parameter in the
-    negative-binomial and samples according to [1]_.
-
-    In other words, this model is the same as `nbinom_horseshoe_gibbs` except
-    for the addition assumption:
+    The implementation follows the sampler described in `nbinom_normal_posterior`. It is designed to
+    sample efficiently from the following negative binomial regression model:
 
     .. math::
 
-        \begin{gather*}
+        \begin{align*}
+            Y &\sim \operatorname{NB}\left(h, p\right) \\
+            p &= \frac{\exp(\psi)}{1 + \exp(\psi)} \\
+            \psi &= X^\top \beta \\
+            \beta_j &\sim \operatorname{N}(0, \lambda_j^2) \\
             h \sim \operatorname{Gamma}\left(a, b\right)
-        \end{gather*}
+        \end{align*}
 
+    If :math:`h` doesn't take the above form, a sampler is produced with steps
+    for all the other terms; otherwise, sampling for :math:`h` is performed
+    in accordance with [1]_.
 
     References
     ----------
-    .. [1] Zhou, Mingyuan, Lingbo Li, David Dunson, and Lawrence Carin. 2012. “Lognormal and Gamma Mixed Negative Binomial Regression.” Proceedings of the International Conference on Machine Learning. International Conference on Machine Learning 2012: 1343–50. https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4180062/.
+    .. [1] Zhou, Mingyuan, Lingbo Li, David Dunson, and Lawrence Carin. 2012.
+          Lognormal and Gamma Mixed Negative Binomial Regression.
+          Proceedings of the International Conference on Machine Learning.
+          2012: 1343–50. https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4180062/.
 
     """
 
-    def nbinom_horseshoe_step(
-        beta: TensorVariable,
-        lmbda: TensorVariable,
-        tau: TensorVariable,
-        h: TensorVariable,
-        y: TensorVariable,
-        X: TensorVariable,
-        a: TensorVariable,
-        b: TensorVariable,
-    ):
-        """Complete one full update of the Gibbs sampler and return the new state
-        of the posterior conditional parameters.
+    y = node.outputs[1]
 
-        Parameters
-        ----------
-        beta
-            Coefficients (other than intercept) of the regression model.
-        lmbda
-            Inverse of the local shrinkage parameter of the horseshoe prior.
-        tau
-            Inverse of the global shrinkage parameters of the horseshoe prior.
-        h
-            The "number of successes" parameter of the negative-binomial distribution
-            used to model the data.
-        y
-            The observed count data.
-        X
-            The covariate matrix.
-        a
-            The shape parameter for the :math:`h` gamma prior.
-        b
-            The rate parameter for the :math:`h` gamma prior.
+    try:
+        X, h, beta_rv = nbinom_sigmoid_dot_match(node.outputs[1])
+    except ValueError:  # pragma: no cover
+        return None
 
-        """
-        xb = X @ beta
-        w = srng.gen(polyagamma, y + h, xb)
-        z = 0.5 * (y - h) / w
-
-        lmbda_inv = 1.0 / lmbda
-        tau_inv = 1.0 / tau
-        beta_new = update_beta(srng, w, lmbda_inv * tau_inv, X, z)
-
-        lmbda_inv_new, tau_inv_new = horseshoe_step(
-            srng, beta_new, 1.0, lmbda_inv, tau_inv
-        )
-        eta = X @ beta_new
-        p = at.sigmoid(-eta)
-        h_new, h_updates = h_step(srng, h, p, a, b, y)
-
-        return (beta_new, 1.0 / lmbda_inv_new, 1.0 / tau_inv_new, h_new), h_updates
-
-    X, beta_rv, lmbda_rv, tau_rv, h_rv, a, b = nbinom_horseshoe_with_dispersion_match(
-        Y_rv
+    beta_posterior = nbinom_normal_posterior(
+        srng, beta_rv, beta_rv.owner.inputs[4], X, h, y
     )
 
-    outputs, updates = aesara.scan(
-        nbinom_horseshoe_step,
-        outputs_info=[beta_rv, lmbda_rv, tau_rv, h_rv],
-        non_sequences=[y, X, a, b],
-        n_steps=num_samples,
-        strict=True,
-    )
+    res: List[
+        Tuple[TensorVariable, TensorVariable, Optional[Mapping[Variable, Variable]]]
+    ] = [(beta_rv, beta_posterior, None)]
 
-    return outputs, updates
+    # TODO: Should this be in a separate rewriter?
+    try:
+        a, b = gamma_match(h)
+    except ValueError:  # pragma: no cover
+        return res
+
+    p = at.sigmoid(-X @ beta_posterior)
+
+    h_posterior, updates = nbinom_dispersion_posterior(srng, h, p, a, b, y)
+
+    res.append((h, h_posterior, updates))
+
+    return res
+
+
+gibbs_db.register("nbinom_logistic_regression", nbinom_logistic_finder, "basic")
 
 
 bernoulli_sigmoid_dot_pattern = etuple(
@@ -667,11 +595,12 @@ bernoulli_sigmoid_dot_pattern = etuple(
 )
 
 
-def bernoulli_sigmoid_dot_match(
+def bern_sigmoid_dot_match(
     graph: TensorVariable,
 ) -> Tuple[TensorVariable, TensorVariable]:
-    graph_opt = optimize_graph(graph)
-    graph_et = etuplize(graph_opt)
+
+    graph_et = etuplize(graph)
+
     s = unify(graph_et, bernoulli_sigmoid_dot_pattern)
     if s is False:
         raise ValueError("Not a Bernoulli regression.")
@@ -688,31 +617,14 @@ def bernoulli_sigmoid_dot_match(
     return X, beta_rv
 
 
-def bernoulli_horseshoe_model(srng: RandomStream) -> TensorVariable:
-    """Bernoulli regression model with a horseshoe shrinkage prior."""
-    X = at.matrix("X")
-
-    beta_rv = horseshoe_model(srng)
-    eta = X @ beta_rv
-    p = at.sigmoid(-eta)
-    Y_rv = srng.bernoulli(p)
-
-    return Y_rv
-
-
-def bernoulli_horseshoe_match(
-    Y_rv: TensorVariable,
-) -> Tuple[TensorVariable, TensorVariable, TensorVariable, TensorVariable]:
-    X, beta_rv = bernoulli_sigmoid_dot_match(Y_rv)
-    lmbda_rv, tau_rv = horseshoe_match(beta_rv)
-
-    return X, beta_rv, lmbda_rv, tau_rv
-
-
-def bernoulli_horseshoe_gibbs(
-    srng: RandomStream, Y_rv: TensorVariable, y: TensorVariable, num_samples: int
-) -> Tuple[Union[TensorVariable, List[TensorVariable]], Dict]:
-    r"""Build a Gibbs sampler for Bernoulli (logistic) regression with a horseshoe prior.
+def bern_normal_posterior(
+    srng: RandomStream,
+    beta: TensorVariable,
+    beta_std: TensorVariable,
+    X: TensorVariable,
+    y: TensorVariable,
+) -> Tuple[TensorVariable, TensorVariable, TensorVariable]:
+    r"""Produce a Gibbs sample step for a bernoulli logistic-link regression with a normal prior.
 
     The implementation follows the sampler described in [1]_. It is designed to
     sample efficiently from the following binary logistic regression model:
@@ -720,88 +632,66 @@ def bernoulli_horseshoe_gibbs(
     .. math::
 
         \begin{align*}
-            Y_i &\sim \operatorname{Bern}\left(p_i\right) \\
-            p_i &= \frac{1}{1 + \exp\left(-(\beta_0 + x_i^\top \beta)\right)} \\
-            \beta_j &\sim \operatorname{N}(0, \lambda_j^2 \tau^2) \\
-            \lambda_j &\sim \operatorname{HalfCauchy}(0, 1) \\
-            \tau &\sim \operatorname{HalfCauchy}(0, 1)
+            Y &\sim \operatorname{Bern}\left( p \right) \\
+            p &= \frac{1}{1 + \exp\left( -X^\top \beta\right)} \\
+            \beta_j &\sim \operatorname{N}\right( 0, \lambda_j^2 \right)
         \end{align*}
+
 
     Parameters
     ----------
-    srng
-        The random number generating object to be used during sampling.
-    Y_rv
-        Model graph.
-    y
-        The observed binary data.
+    beta
+        The current/previous value of the regression parameter :math:`beta`.
+    beta_std
+        The std. dev. of the regression parameter :math:`beta`.
     X
-        The covariate matrix.
-    n_samples
-        A tensor describing the number of posterior samples to generate.
+        The regression matrix.
+    y
+        A sample from the observation distribution :math:`y \sim Y`.
 
     Returns
     -------
-    (outputs, updates): tuple
-        A symbolic description of the sampling result to be used to
-        compile a sampling function.
-
+    A sample from :math:`\beta \mid y`.
 
     References
     ----------
-    .. [1] Makalic, Enes & Schmidt, Daniel. (2015). A Simple Sampler for the
-          Horseshoe Estimator. 10.1109/LSP.2015.2503725.
-    .. [2] Makalic, Enes & Schmidt, Daniel. (2016). High-Dimensional Bayesian
+    .. [1] Makalic, Enes & Schmidt, Daniel. (2016). High-Dimensional Bayesian
           Regularised Regression with the BayesReg Package.
 
     """
 
-    def bernoulli_horseshoe_step(
-        beta: TensorVariable,
-        lmbda: TensorVariable,
-        tau: TensorVariable,
-        y: TensorVariable,
-        X: TensorVariable,
-    ) -> Tuple[TensorVariable, TensorVariable, TensorVariable]:
-        """Complete one full update of the Gibbs sampler and return the new
-        state of the posterior conditional parameters.
+    w = srng.gen(polyagamma, 1, X @ beta)
+    z = (y - 0.5) / w
 
-        Parameters
-        ----------
-        beta
-            Coefficients (other than intercept) of the regression model.
-        lmbda
-            Square of the local shrinkage parameter of the horseshoe prior.
-        tau
-            Square of the global shrinkage parameters of the horseshoe prior.
-        y
-            The observed binary data
-        X
-            The covariate matrix.
+    tau_beta = at.reciprocal(beta_std)
 
-        """
-        xb = X @ beta
-        w = srng.gen(polyagamma, 1, xb)
-        z = 0.5 * y / w
+    beta_posterior = normal_regression_posterior(srng, w, tau_beta, X, z)
 
-        lmbda_inv = 1.0 / lmbda
-        tau_inv = 1.0 / tau
-        beta_new = update_beta(srng, w, lmbda_inv * tau_inv, X, z)
+    if beta.name:
+        beta_posterior.name = f"{beta.name}_posterior"
 
-        lmbda_inv_new, tau_inv_new = horseshoe_step(
-            srng, beta_new, 1.0, lmbda_inv, tau_inv
-        )
+    return beta_posterior
 
-        return beta_new, 1 / lmbda_inv_new, 1.0 / tau_inv_new
 
-    X, beta_rv, lmbda_rv, tau_rv = bernoulli_horseshoe_match(Y_rv)
+@sampler_finder([BernoulliRV])
+def bern_logistic_finder(fgraph, node, srng):
+    r"""Find and construct a Gibbs sampler for a negative binomial logistic-link regression."""
 
-    outputs, updates = aesara.scan(
-        bernoulli_horseshoe_step,
-        outputs_info=[beta_rv, lmbda_rv, tau_rv],
-        non_sequences=[y, X],
-        n_steps=num_samples,
-        strict=True,
-    )
+    y = node.outputs[1]
 
-    return outputs, updates
+    try:
+        X, beta_rv = bern_sigmoid_dot_match(node.outputs[1])
+    except ValueError:  # pragma: no cover
+        return None
+
+    beta_posterior = bern_normal_posterior(srng, beta_rv, beta_rv.owner.inputs[4], X, y)
+
+    return [(beta_rv, beta_posterior, None)]
+
+
+gibbs_db.register("bern_logistic_finder", bern_logistic_finder, "basic")
+
+
+sampler_finder_db.register(
+    "gibbs_db", in2out(gibbs_db.query("+basic"), name="gibbs"), "basic"
+)
