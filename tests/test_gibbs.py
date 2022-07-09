@@ -4,24 +4,22 @@ import numpy as np
 import pytest
 import scipy.special
 from aesara.graph.basic import equal_computations
+from aesara.graph.opt_utils import optimize_graph
 from aesara.tensor.random.utils import RandomStream
 from scipy.linalg import toeplitz
 
 from aemcmc.gibbs import (
-    bernoulli_horseshoe_gibbs,
-    bernoulli_horseshoe_match,
-    bernoulli_horseshoe_model,
+    bern_normal_posterior,
+    bern_sigmoid_dot_match,
     gamma_match,
-    h_step,
     horseshoe_match,
-    horseshoe_model,
-    nbinom_horseshoe_gibbs,
-    nbinom_horseshoe_gibbs_with_dispersion,
-    nbinom_horseshoe_match,
-    nbinom_horseshoe_model,
-    nbinom_horseshoe_with_dispersion_match,
+    horseshoe_posterior,
+    nbinom_dispersion_posterior,
+    nbinom_normal_posterior,
+    normal_regression_posterior,
     sample_CRT,
 )
+from aemcmc.opt import SamplerTracker, construct_ir_fgraph, sampler_rewrites_db
 
 
 @pytest.fixture
@@ -37,31 +35,33 @@ def test_horseshoe_match(srng):
     lmbda_rv = srng.halfcauchy(0, 1, size=size, name="lambda")
     beta_rv = srng.normal(0, lmbda_rv * tau_rv, size=size, name="beta")
 
+    fgraph, _, memo, _ = construct_ir_fgraph({beta_rv: beta_rv})
+    beta_rv = fgraph.outputs[-1]
+
     lambda_res, tau_res = horseshoe_match(beta_rv)
 
-    assert lambda_res is lmbda_rv
-    assert tau_res is tau_rv
+    assert lambda_res is memo[lmbda_rv]
+    assert tau_res is memo[tau_rv]
 
     # Scalar tau
     tau_rv = srng.halfcauchy(0, 1, name="tau")
     lmbda_rv = srng.halfcauchy(0, 1, size=size, name="lambda")
     beta_rv = srng.normal(0, lmbda_rv * tau_rv, size=size, name="beta")
 
+    fgraph, _, memo, _ = construct_ir_fgraph({beta_rv: beta_rv})
+    beta_rv = fgraph.outputs[-1]
+
     lambda_res, tau_res = horseshoe_match(beta_rv)
 
-    assert lambda_res is lmbda_rv
+    assert lambda_res is memo[lmbda_rv]
     # `tau_res` should've had its `DimShuffle` lifted, so it's not identical to `tau_rv`
     assert isinstance(tau_res.owner.op, type(tau_rv.owner.op))
-    assert tau_res.type.ndim == 1
+    assert tau_res.type.ndim == 0
 
-
-def test_horseshoe_match_wrong_graph(srng):
     beta_rv = srng.normal(0, 1)
     with pytest.raises(ValueError):
         horseshoe_match(beta_rv)
 
-
-def test_horseshoe_match_wrong_local_scale_dist(srng):
     size = at.scalar("size", dtype="int32")
     tau_rv = srng.halfcauchy(0, 1, size=1)
     lmbda_rv = srng.normal(0, 1, size=size)
@@ -69,8 +69,6 @@ def test_horseshoe_match_wrong_local_scale_dist(srng):
     with pytest.raises(ValueError):
         horseshoe_match(beta_rv)
 
-
-def test_horseshoe_match_wrong_global_scale_dist(srng):
     size = at.scalar("size", dtype="int32")
     tau_rv = srng.normal(0, 1, size=1)
     lmbda_rv = srng.halfcauchy(0, 1, size=size)
@@ -78,8 +76,6 @@ def test_horseshoe_match_wrong_global_scale_dist(srng):
     with pytest.raises(ValueError):
         horseshoe_match(beta_rv)
 
-
-def test_horseshoe_match_wrong_dimensions(srng):
     size = at.scalar("size", dtype="int32")
     tau_rv = srng.halfcauchy(0, 1, size=size)
     lmbda_rv = srng.halfcauchy(0, 1, size=size)
@@ -89,69 +85,56 @@ def test_horseshoe_match_wrong_dimensions(srng):
         horseshoe_match(beta_rv)
 
 
-def test_match_nbinom_horseshoe(srng):
-    nbinom_horseshoe_match(nbinom_horseshoe_model(srng))
+@pytest.mark.parametrize(
+    "N, p, nonzero_atol",
+    [
+        (50, 10, np.array([1.0, 0.5, 0.5, 3e-1, 3e-1])),
+        (50, 55, np.array([1.5, 0.5, 0.5, 0.7, 3e-1])),
+    ],
+)
+def test_normal_horseshoe_sampler(srng, N, p, nonzero_atol):
+    """Check the results of a normal regression model with a Horseshoe prior.
 
-
-def test_match_binom_horseshoe_wrong_graph(srng):
-    beta = at.vector("beta")
-    X = at.matrix("X")
-    Y = X @ beta
-
-    with pytest.raises(ValueError):
-        nbinom_horseshoe_match(Y)
-
-
-def test_match_nbinom_horseshoe_wrong_sign(srng):
-    X = at.matrix("X")
-    h = at.scalar("h")
-
-    beta_rv = horseshoe_model(srng)
-    eta = X @ beta_rv
-    p = at.sigmoid(2 * eta)
-    Y_rv = srng.nbinom(h, p)
-
-    with pytest.raises(ValueError):
-        nbinom_horseshoe_match(Y_rv)
-
-
-def test_horseshoe_nbinom(srng):
-    """
     This test example is modified from section 3.2 of Makalic & Schmidt (2016)
-    """
-    h = 2
-    p = 10
-    N = 50
 
-    # generate synthetic data
+    """
+    rng = np.random.default_rng(9420)
+
     true_beta = np.array([5, 3, 3, 1, 1] + [0] * (p - 5))
     S = toeplitz(0.5 ** np.arange(p))
-    X = srng.multivariate_normal(np.zeros(p), cov=S, size=N)
-    y = srng.nbinom(h, at.sigmoid(-(X.dot(true_beta))))
+    X = rng.multivariate_normal(np.zeros(p), cov=S, size=N)
+    y = rng.normal(X @ true_beta, np.ones(N))
 
-    # build the model
-    tau_rv = srng.halfcauchy(0, 1, size=1)
+    tau_rv = srng.halfcauchy(0, 1)
     lambda_rv = srng.halfcauchy(0, 1, size=p)
-    beta_rv = srng.normal(0, tau_rv * lambda_rv, size=p)
 
-    eta_tt = X @ beta_rv
-    p_tt = at.sigmoid(-eta_tt)
-    Y_rv = srng.nbinom(h, p_tt)
+    tau_inv_vv = tau_rv.clone()
+    lambda_inv_vv = lambda_rv.clone()
 
-    # sample from the posterior distributions
-    num_samples = at.scalar("num_samples", dtype="int32")
-    outputs, updates = nbinom_horseshoe_gibbs(srng, Y_rv, y, num_samples)
-    sample_fn = aesara.function((num_samples,), outputs, updates=updates)
+    beta_post = normal_regression_posterior(
+        srng, np.ones(N), tau_inv_vv * lambda_inv_vv, at.as_tensor(X), y
+    )
 
-    beta, lmbda, tau = sample_fn(2000)
+    lambda_post, tau_post = horseshoe_posterior(
+        srng, beta_post, 1.0, lambda_inv_vv, tau_inv_vv
+    )
 
-    assert beta.shape == (2000, p)
-    assert lmbda.shape == (2000, p)
-    assert tau.shape == (2000, 1)
+    outputs = (beta_post, lambda_post, tau_post)
+    sample_fn = aesara.function((tau_inv_vv, lambda_inv_vv), outputs)
 
-    # test distribution domains
-    assert np.all(tau > 0)
-    assert np.all(lmbda > 0)
+    beta_post_vals = []
+    lambda_inv_post_val, tau_inv_post_val = np.ones(p), 1.0
+    for i in range(3000):
+        beta_post_val, lambda_inv_post_val, tau_inv_post_val = sample_fn(
+            tau_inv_post_val, lambda_inv_post_val
+        )
+        beta_post_vals += [beta_post_val]
+        assert np.all(tau_inv_post_val >= 0)
+        assert np.all(lambda_inv_post_val >= 0)
+
+    beta_post_median = np.median(beta_post_vals[100::2], axis=0)
+    assert np.allclose(beta_post_median[:5], true_beta[:5], atol=nonzero_atol)
+    assert np.all(np.abs(beta_post_median[5:]) < 1)
 
 
 @pytest.mark.parametrize(
@@ -183,12 +166,39 @@ def test_sample_CRT_mean(srng, h_val, y_val):
     assert np.allclose(crt_mean_val, crt_exp_val, rtol=1e-1)
 
 
-def test_h_step(srng):
-
-    true_h = 10
+def test_nbinom_normal_posterior(srng):
     M = 10
     N = 50
 
+    true_h = 10
+    true_beta = np.array([2, 0.02, 0.2, 0.1, 1] + [0.0] * (M - 5))
+    S = toeplitz(0.5 ** np.arange(M))
+    X_at = srng.multivariate_normal(np.zeros(M), cov=S, size=N)
+    p_at = at.sigmoid(-(X_at.dot(true_beta)))
+    X, p, y = aesara.function([], [X_at, p_at, srng.nbinom(true_h, p_at)])()
+
+    beta_vv = at.vector("beta")
+    beta_post = nbinom_normal_posterior(
+        srng, beta_vv, 200 * np.ones(M), at.as_tensor(X), true_h, y
+    )
+
+    beta_post_fn = aesara.function([beta_vv], beta_post)
+
+    beta_post_vals = []
+    beta_post_val = np.zeros(M)
+    for i in range(1000):
+        beta_post_val = beta_post_fn(beta_post_val)
+        beta_post_vals += [beta_post_val]
+
+    beta_post_mean = np.mean(beta_post_vals, axis=0)
+    assert np.allclose(beta_post_mean, true_beta, atol=3e-1)
+
+
+def test_nbinom_dispersion_posterior(srng):
+    M = 10
+    N = 50
+
+    true_h = 10
     true_beta = np.array([2, 0.02, 0.2, 0.1, 1] + [0.1] * (M - 5))
     S = toeplitz(0.5 ** np.arange(M))
     X = srng.multivariate_normal(np.zeros(M), cov=S, size=N)
@@ -201,7 +211,8 @@ def test_h_step(srng):
     b = at.as_tensor(b_val)
 
     h_samples, h_updates = aesara.scan(
-        lambda: h_step(srng, at.as_tensor(true_h), p, a, b, y), n_steps=1000
+        lambda: nbinom_dispersion_posterior(srng, at.as_tensor(true_h), p, a, b, y),
+        n_steps=1000,
     )
 
     h_mean_fn = aesara.function([], h_samples.mean(), updates=h_updates)
@@ -216,128 +227,72 @@ def test_h_step(srng):
     assert np.allclose(h_mean_val, true_h, rtol=2e-1)
 
 
-def test_horseshoe_nbinom_w_dispersion(srng):
-    """
-    This test example is modified from section 3.2 of Makalic & Schmidt (2016)
-    """
-    true_h = 10
-    M = 10
-    N = 50
+def test_bern_sigmoid_dot_match(srng):
+    X = at.matrix("X")
 
-    # generate synthetic data
-    true_beta = np.array([2, 0.02, 0.2, 0.1, 1] + [0.1] * (M - 5))
-    S = toeplitz(0.5 ** np.arange(M))
-    X_at = srng.multivariate_normal(np.zeros(M), cov=S, size=N)
-    X, y = aesara.function(
-        [], [X_at, srng.nbinom(true_h, at.sigmoid(-(X_at.dot(true_beta))))]
-    )()
-    X = at.as_tensor(X)
-    y = at.as_tensor(y)
+    beta_rv = srng.normal(0, 1, size=X.shape[1], name="beta")
+    eta = X @ beta_rv
+    p = at.sigmoid(-eta)
+    Y_rv = srng.bernoulli(p)
 
-    # build the model
-    tau_rv = srng.halfcauchy(0, 1, name="tau")
-    lambda_rv = srng.halfcauchy(0, 1, size=M, name="lambda")
-    beta_rv = srng.normal(0, tau_rv * lambda_rv, size=M, name="beta")
+    Y_rv = optimize_graph(Y_rv)
 
-    eta_tt = X @ beta_rv
-    p_tt = at.sigmoid(-eta_tt)
-    p_tt.name = "p"
+    assert bern_sigmoid_dot_match(Y_rv)
 
-    h_rv = srng.gamma(100, 1, name="h")
-
-    Y_rv = srng.nbinom(h_rv, p_tt, name="Y")
-
-    # sample from the posterior distributions
-    num_samples = at.lscalar("num_samples")
-    outputs, updates = nbinom_horseshoe_gibbs_with_dispersion(
-        srng, Y_rv, y, num_samples
-    )
-
-    sample_fn = aesara.function((num_samples,), outputs, updates=updates)
-
-    sample_num = 2000
-    beta, lmbda, tau, h = sample_fn(sample_num)
-
-    assert beta.shape == (sample_num, M)
-    assert lmbda.shape == (sample_num, M)
-    assert tau.shape == (sample_num, 1)
-    assert h.shape == (sample_num,)
-
-    assert np.all(tau > 0)
-    assert np.all(lmbda > 0)
-    assert np.all(h > 0)
-
-    assert np.allclose(h.mean(), true_h, rtol=1e-1)
-
-
-def test_match_bernoulli_horseshoe(srng):
-    bernoulli_horseshoe_match(bernoulli_horseshoe_model(srng))
-
-
-def test_match_bernoulli_horseshoe_wrong_graph(srng):
     beta = at.vector("beta")
     X = at.matrix("X")
     Y = X @ beta
 
     with pytest.raises(ValueError):
-        bernoulli_horseshoe_match(Y)
+        bern_sigmoid_dot_match(Y)
 
-
-def test_match_bernoulli_horseshoe_wrong_sign(srng):
     X = at.matrix("X")
-
-    beta_rv = horseshoe_model(srng)
+    beta_rv = srng.normal(0, 1, name="beta")
     eta = X @ beta_rv
     p = at.sigmoid(2 * eta)
     Y_rv = srng.bernoulli(p)
 
     with pytest.raises(ValueError):
-        bernoulli_horseshoe_match(Y_rv)
+        bern_sigmoid_dot_match(Y_rv)
 
 
-def test_bernoulli_horseshoe(srng):
-    p = 10
+def test_bern_normal_posterior(srng):
+    M = 10
     N = 50
 
-    # generate synthetic data
-    true_beta = np.array([5, 3, 3, 1, 1] + [0] * (p - 5))
-    S = toeplitz(0.5 ** np.arange(p))
-    X = srng.multivariate_normal(np.zeros(p), cov=S, size=N)
-    y = srng.bernoulli(at.sigmoid(-X.dot(true_beta)))
+    true_beta = np.array([2, 0.02, 0.2, 0.1, 1] + [0.1] * (M - 5))
+    S = toeplitz(0.5 ** np.arange(M))
+    X_at = srng.multivariate_normal(np.zeros(M), cov=S, size=N)
+    p_at = at.sigmoid(X_at.dot(true_beta))
+    X, p, y = aesara.function([], [X_at, p_at, srng.bernoulli(p_at)])()
 
-    # build the model
-    tau_rv = srng.halfcauchy(0, 1, size=1)
-    lambda_rv = srng.halfcauchy(0, 1, size=p)
-    beta_rv = srng.normal(0, tau_rv * lambda_rv, size=p)
+    beta_vv = at.vector("beta")
+    beta_post = bern_normal_posterior(srng, beta_vv, np.ones(M), at.as_tensor(X), y)
 
-    eta_tt = X @ beta_rv
-    p_tt = at.sigmoid(-eta_tt)
-    Y_rv = srng.bernoulli(p_tt)
+    beta_post_fn = aesara.function([beta_vv], beta_post)
 
-    # sample from the posterior distributions
-    num_samples = at.scalar("num_samples", dtype="int32")
-    outputs, updates = bernoulli_horseshoe_gibbs(srng, Y_rv, y, num_samples)
-    sample_fn = aesara.function((num_samples,), outputs, updates=updates)
+    beta_post_vals = []
+    beta_post_val = np.zeros(M)
+    for i in range(3000):
+        beta_post_val = beta_post_fn(beta_post_val)
+        beta_post_vals += [beta_post_val]
 
-    beta, lmbda, tau = sample_fn(2000)
-
-    assert beta.shape == (2000, p)
-    assert lmbda.shape == (2000, p)
-    assert tau.shape == (2000, 1)
-
-    # test distribution domains
-    assert np.all(tau > 0)
-    assert np.all(lmbda > 0)
+    beta_post_mean = np.mean(beta_post_vals, axis=0)
+    assert np.allclose(beta_post_mean, true_beta, atol=0.7)
 
 
 def test_gamma_match(srng):
     beta_rv = srng.normal(0, 1)
+
     with pytest.raises(ValueError):
         gamma_match(beta_rv)
 
     a = at.scalar("a")
     b = at.scalar("b")
     beta_rv = srng.gamma(a, b)
+
+    beta_rv = optimize_graph(beta_rv)
+
     a_m, b_m = gamma_match(beta_rv)
 
     assert a_m is a
@@ -346,20 +301,84 @@ def test_gamma_match(srng):
     assert equal_computations([b_m], [b_exp])
 
 
-def test_nbinom_horseshoe_with_dispersion_match(srng):
-    a = at.scalar("a")
-    b = at.scalar("b")
+def test_nbinom_logistic_horseshoe_finders():
+    """Make sure `nbinom_logistic_finder` and `normal_horseshoe_finder` work."""
+    srng = RandomStream(0)
+
     X = at.matrix("X")
 
-    beta_rv = horseshoe_model(srng)
+    # Horseshoe `beta_rv`
+    tau_rv = srng.halfcauchy(0, 1, name="tau")
+    lmbda_rv = srng.halfcauchy(0, 1, size=X.shape[1], name="lambda")
+    beta_rv = srng.normal(0, lmbda_rv * tau_rv, size=X.shape[1], name="beta")
+
+    a = at.scalar("a")
+    b = at.scalar("b")
+    h_rv = srng.gamma(a, b, name="h")
+
+    # Negative-binomial regression
     eta = X @ beta_rv
     p = at.sigmoid(-eta)
-    h = srng.gamma(a, b)
-    Y_rv = srng.nbinom(h, p)
+    Y_rv = srng.nbinom(h_rv, p, name="Y")
 
-    X_m, beta_m, lmbda_m, tau_m, h_m, a_m, b_m = nbinom_horseshoe_with_dispersion_match(
-        Y_rv
-    )
+    y_vv = Y_rv.clone()
+    y_vv.name = "y"
 
-    assert a_m is a
-    assert X_m is X
+    fgraph, obs_rvs_to_values, memo, new_to_old_rvs = construct_ir_fgraph({Y_rv: y_vv})
+
+    fgraph.attach_feature(SamplerTracker(srng))
+
+    _ = sampler_rewrites_db.query("+basic").optimize(fgraph)
+
+    discovered_samplers = fgraph.sampler_mappings.rvs_to_samplers
+    discovered_samplers = {
+        new_to_old_rvs[rv]: discovered_samplers.get(rv)
+        for rv in fgraph.outputs
+        if rv not in obs_rvs_to_values
+    }
+
+    assert len(discovered_samplers) == 4
+
+    assert discovered_samplers[tau_rv][0][0] == "normal_horseshoe_finder"
+    assert discovered_samplers[lmbda_rv][0][0] == "normal_horseshoe_finder"
+    assert discovered_samplers[beta_rv][0][0] == "nbinom_logistic_finder"
+    assert discovered_samplers[h_rv][0][0] == "nbinom_logistic_finder"
+
+
+def test_bern_logistic_horseshoe_finders():
+    """Make sure `bern_logistic_finder` and `normal_horseshoe_finder` work."""
+    srng = RandomStream(0)
+
+    X = at.matrix("X")
+
+    # Horseshoe `beta_rv`
+    tau_rv = srng.halfcauchy(0, 1, name="tau")
+    lmbda_rv = srng.halfcauchy(0, 1, size=X.shape[1], name="lambda")
+    beta_rv = srng.normal(0, lmbda_rv * tau_rv, size=X.shape[1], name="beta")
+
+    # Negative-binomial regression
+    eta = X @ beta_rv
+    p = at.sigmoid(-eta)
+    Y_rv = srng.bernoulli(p, name="Y")
+
+    y_vv = Y_rv.clone()
+    y_vv.name = "y"
+
+    fgraph, obs_rvs_to_values, memo, new_to_old_rvs = construct_ir_fgraph({Y_rv: y_vv})
+
+    fgraph.attach_feature(SamplerTracker(srng))
+
+    _ = sampler_rewrites_db.query("+basic").optimize(fgraph)
+
+    discovered_samplers = fgraph.sampler_mappings.rvs_to_samplers
+    discovered_samplers = {
+        new_to_old_rvs[rv]: discovered_samplers.get(rv)
+        for rv in fgraph.outputs
+        if rv not in obs_rvs_to_values
+    }
+
+    assert len(discovered_samplers) == 3
+
+    assert discovered_samplers[tau_rv][0][0] == "normal_horseshoe_finder"
+    assert discovered_samplers[lmbda_rv][0][0] == "normal_horseshoe_finder"
+    assert discovered_samplers[beta_rv][0][0] == "bern_logistic_finder"

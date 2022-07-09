@@ -26,7 +26,7 @@ def test_beta_binomial_conjugate_contract():
     y_vv.tag.name = "y"
 
     q_lv = var()
-    (posterior_expr,) = run(1, q_lv, beta_binomial_conjugateo((Y_rv, y_vv), q_lv))
+    (posterior_expr,) = run(1, q_lv, beta_binomial_conjugateo(y_vv, Y_rv, q_lv))
     posterior = eval_if_etuple(posterior_expr)
 
     assert isinstance(posterior.owner.op, type(at.random.beta))
