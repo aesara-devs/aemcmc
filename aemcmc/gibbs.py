@@ -41,6 +41,13 @@ def update_beta_low_dimension(
     X: TensorVariable,
     z: TensorVariable,
 ) -> TensorVariable:
+    """Sample from the posterior of a normal prior and normal observation model.
+
+    This version handles ``X.shape[1] <= X.shape[0]``.
+
+    See `update_beta` for a description of the parameters and return value.
+
+    """
     Q = X.T @ (omega[:, None] * X)
     indices = at.arange(Q.shape[1])
     Q = at.subtensor.set_subtensor(
@@ -57,6 +64,13 @@ def update_beta_high_dimension(
     X: TensorVariable,
     z: TensorVariable,
 ) -> TensorVariable:
+    """Sample from the posterior of a normal prior and normal observation model.
+
+    This version handles ``X.shape[1] > X.shape[0]``.
+
+    See `update_beta` for a description of the parameters and return value.
+
+    """
     return multivariate_normal_cong2017(srng, lmbdatau_inv, omega, X, z)
 
 
@@ -67,6 +81,54 @@ def update_beta(
     X: TensorVariable,
     z: TensorVariable,
 ) -> TensorVariable:
+    r"""Sample from the posterior of a normal prior and normal observation model.
+
+    .. math::
+
+        \begin{align*}
+            Z &\sim \operatorname{N}\left( X \beta, \Omega^{-1} \right) \\
+            \beta &\sim \operatorname{N}\left( 0, \tau^2 \Lambda \right)
+        \end{align*}
+
+    where :math:`X \in \mathbb{R}^{n \times p}`,
+    :math:`\Lambda = \operatorname{diag}\left(\lambda^2_1, \dots, \lambda^2_p)`, and
+    :math:`\Omega^{-1} = \operatorname{diag}\left(\omega_1, \dots, \omega_n\right)`.
+
+    The posterior distribution of :math:`\beta` is given by
+
+    .. math::
+
+        \begin{align*}
+            \left( \beta \mid Z = z \right) &\sim
+                \operatorname{N}\left( A^{-1} X^{\top} \Omega, A^{-1} \right) \\
+            A &= X^{\top} X + \Lambda^{-1}_{*} \\
+            \Lambda_{*} &= \tau^2 \Lambda
+        \end{align*}
+
+    This function chooses the best sampler for :math:`\beta \mid z` based on
+    the dimensions of :math:`X`.
+
+    Parameters
+    ----------
+    srng
+        The random number generator used to draw samples.
+    omega
+        The observation model diagonal std. dev. values :math:`\omega_i`.
+        In other words, :math:`\operatorname{diag}\left(\Omega\right)`.
+    lmbdatau_inv
+        The inverse :math:`beta` std. dev. values :math:`\tau^{-1} \lambda^{-1}_i`.
+        In other words, :math:`\operatorname{diag}\left(\Lambda^{-1/2}_{*}\right)`.
+    X
+        Regression matrix :math:`X`.
+    z
+        Observed values :math:`z \sim Z`.
+
+
+    Returns
+    -------
+    A sample from :math:`\beta \mid z`.
+
+    """
     return ifelse(
         X.shape[1] > X.shape[0],
         update_beta_high_dimension(srng, omega, lmbdatau_inv, X, z),
@@ -152,7 +214,7 @@ def horseshoe_step(
     lmbda_inv: TensorVariable,
     tau_inv: TensorVariable,
 ) -> Tuple[TensorVariable, TensorVariable]:
-    r"""Gibbs kernel to sample from the posterior distribution of a horseshoe prior.
+    r"""Gibbs kernel to sample from the posterior distributions of the horseshoe prior shrinkage parameters.
 
     This kernel generates samples from the posterior distribution of the local
     and global shrinkage parameters of a horseshoe prior, respectively :math:`\lambda`
@@ -162,16 +224,19 @@ def horseshoe_step(
 
         \begin{align*}
             \beta_j &\sim \operatorname{N}\left(0, \lambda_j^2 \tau^2 \sigma^2\right) \\
-            \lambda_j &\sim \operatorname{HalfCauchy}(0, 1) \\
-            \tau &\sim \operatorname{HalfCauchy}(0, 1)
+            \lambda_j &\sim \operatorname{C}^{+}(0, 1) \\
+            \tau &\sim \operatorname{C}^{+}(0, 1)
         \end{align*}
+
+    The graphs constructed by this function are :math:`\lambda \mid \beta, \tau` and
+    :math:`\tau \mid \lambda`, respectively.
 
     We use the following observations [1]_ to sample from the posterior
     conditional probability of :math:`\tau` and :math:`\lambda`:
 
     1. The half-Cauchy distribution can be intepreted as a mixture of inverse-gamma
     distributions;
-    2. If :math:` Y \sim \operatorname{InvGamma}(1, a)`, :math:`Y \sim 1 / \operatorname{Exp}(a)`.
+    2. If :math:`Z \sim \operatorname{InvGamma}(1, a)`, :math:`Z \sim 1 / \operatorname{Exp}(a)`.
 
     Parameters
     ----------
