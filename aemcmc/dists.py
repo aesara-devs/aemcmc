@@ -30,16 +30,21 @@ polyagamma = PolyaGammaRV()
 
 
 def multivariate_normal_rue2005(rng, b, Q):
-    """
-    Sample from a multivariate normal distribution of the form N(Qinv * b, Qinv).
+    r"""Sample from a multivariate normal distribution.
 
-    We use the algorithm described in [1]. This algorithm is suitable for when
-    the number of regression coefficients is significantly less than the number
-    of data points.
+    More specifically, this function draws a sample from the following distribution:
+
+    .. math::
+
+        \operatorname{N}\left( Q^{-1} b, Q^{-1} \right)
+
+    It uses the algorithm described in [1]_, which is suitable for cases in
+    which the number of regression coefficients is significantly less than the
+    number of data points.
 
     References
     ----------
-    ..[1] Rue, H. and Held, L. (2005), Gaussian Markov Random Fields, Boca
+    .. [1] Rue, H. and Held, L. (2005), Gaussian Markov Random Fields, Boca
           Raton: Chapman & Hall/CRC.
     """
     if _is_sparse_variable(Q):
@@ -59,44 +64,41 @@ def multivariate_normal_cong2017(
     phi: TensorVariable,
     t: TensorVariable,
 ) -> TensorVariable:
-    r"""
-    Sample from a multivariate normal distribution with a structured mean and covariance.
+    r"""Sample from a multivariate normal distribution with a structured mean and covariance.
 
-    As described in Example 4 [page 17] of [1], The covariance of this normal
+    As described in Example 4 [page 17] of [1]_, The covariance of this normal
     distribution should be decomposable into a sum of a positive-definite matrix
     and a low-rank symmetric matrix such that:
 
     .. math::
 
-         \mathcal{N}(\mathbf{\Lambda}^{-1}\mathbf{\Phi}^T\mathbf{\Omega t}, \mathbf{\Lambda}^{-1})
+         \operatorname{N}\left(\Lambda^{-1} \Phi^{\top} \Omega t, \Lambda^{-1}\right)
 
     where
 
     .. math::
 
-        \begin{align*}
-            \mathbf{\Lambda} = (\mathbf{A}+\mathbf{\Phi}^T\mathbf{\Omega \Phi})
-        \end{align*}
+        \Lambda = A + \Phi^{\top} \Omega \Phi
 
-    and :math:`\mathbf{A}` is the positive-definite part and
-    :math:`\mathbf{\Phi}^T\mathbf{\Omega \Phi}` is the eigen-factorization of
+    and :math:`A` is the positive-definite part and
+    :math:`\Phi^{\top} \Omega \Phi` is the eigen-factorization of
     the low-rank part of the "structured" covariance.
 
     Parameters
     ----------
-    rng: TensorVariable
+    rng
         The random number generating object to be used during sampling.
-    A: TensorVariable
+    A
         The entries of the diagonal elements of the positive-definite part of
         the structured covariance.
-    omega: TensorVariable
+    omega
         The elements of the diagonal matrix in the eigen-decomposition of the
-        low-rank part of the structured covariancec of the multivariate normal
+        low-rank part of the structured covariance of the multivariate normal
         distribution.
-    phi: TensorVariable
+    phi
         A matrix containing the eigenvectors of the eigen-decomposition of the
         low-rank part of the structured covariance of the normal distribution.
-    t: TensorVariable
+    t
         A 1D array whose length is the number of eigenvalues of the low-rank
         part of the structured covariance.
 
@@ -105,7 +107,7 @@ def multivariate_normal_cong2017(
     This algorithm is suitable for high-dimensional regression problems and the
     runtime scales linearly with the number of regression coefficients. This
     implementation assumes that `A` and `omega` are diagonal matrices and
-    the parameters `A` and ``omega`` are expected to be vectors that contain
+    the parameters `A` and `omega` are expected to be vectors that contain
     diagonal entries of the respective matrices they represent.
 
     Note the the algorithm described in [2]_ is a special case when `omega` is
@@ -123,10 +125,10 @@ def multivariate_normal_cong2017(
 
     References
     ----------
-    ..[1] Cong, Yulai; Chen, Bo; Zhou, Mingyuan. Fast Simulation of Hyperplane-
+    .. [1] Cong, Yulai; Chen, Bo; Zhou, Mingyuan. Fast Simulation of Hyperplane-
           Truncated Multivariate Normal Distributions. Bayesian Anal. 12 (2017),
           no. 4, 1017--1037. doi:10.1214/17-BA1052.
-    ..[2] Bhattacharya, A., Chakraborty, A., and Mallick, B. K. (2016).
+    .. [2] Bhattacharya, A., Chakraborty, A., and Mallick, B. K. (2016).
           “Fast sampling with Gaussian scale mixture priors in high-dimensional
           regression.” Biometrika, 103(4): 985.033
     """
