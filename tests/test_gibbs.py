@@ -89,7 +89,7 @@ def test_horseshoe_match(srng):
     "N, p, nonzero_atol",
     [
         (50, 10, np.array([1.0, 0.5, 0.5, 3e-1, 3e-1])),
-        (50, 55, np.array([1.5, 0.5, 0.5, 0.7, 3e-1])),
+        (50, 55, np.array([1.5, 0.5, 0.5, 0.75, 3e-1])),
     ],
 )
 def test_normal_horseshoe_sampler(srng, N, p, nonzero_atol):
@@ -108,29 +108,27 @@ def test_normal_horseshoe_sampler(srng, N, p, nonzero_atol):
     tau_rv = srng.halfcauchy(0, 1)
     lambda_rv = srng.halfcauchy(0, 1, size=p)
 
-    tau_inv_vv = tau_rv.clone()
-    lambda_inv_vv = lambda_rv.clone()
+    tau_vv = tau_rv.clone()
+    lambda_vv = lambda_rv.clone()
 
     beta_post = normal_regression_posterior(
-        srng, np.ones(N), tau_inv_vv * lambda_inv_vv, at.as_tensor(X), y
+        srng, np.ones(N), at.reciprocal(tau_vv * lambda_vv), at.as_tensor(X), y
     )
 
-    lambda_post, tau_post = horseshoe_posterior(
-        srng, beta_post, 1.0, lambda_inv_vv, tau_inv_vv
-    )
+    lambda_post, tau_post = horseshoe_posterior(srng, beta_post, 1.0, lambda_vv, tau_vv)
 
     outputs = (beta_post, lambda_post, tau_post)
-    sample_fn = aesara.function((tau_inv_vv, lambda_inv_vv), outputs)
+    sample_fn = aesara.function((tau_vv, lambda_vv), outputs)
 
     beta_post_vals = []
-    lambda_inv_post_val, tau_inv_post_val = np.ones(p), 1.0
+    lambda_post_val, tau_post_val = np.ones(p), 1.0
     for i in range(3000):
-        beta_post_val, lambda_inv_post_val, tau_inv_post_val = sample_fn(
-            tau_inv_post_val, lambda_inv_post_val
+        beta_post_val, lambda_post_val, tau_post_val = sample_fn(
+            tau_post_val, lambda_post_val
         )
         beta_post_vals += [beta_post_val]
-        assert np.all(tau_inv_post_val >= 0)
-        assert np.all(lambda_inv_post_val >= 0)
+        assert np.all(tau_post_val >= 0)
+        assert np.all(lambda_post_val >= 0)
 
     beta_post_median = np.median(beta_post_vals[100::2], axis=0)
     assert np.allclose(beta_post_median[:5], true_beta[:5], atol=nonzero_atol)

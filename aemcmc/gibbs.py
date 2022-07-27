@@ -184,9 +184,9 @@ def horseshoe_match(graph: TensorVariable) -> Tuple[TensorVariable, TensorVariab
 def horseshoe_posterior(
     srng: RandomStream,
     beta: TensorVariable,
-    sigma: TensorVariable,
-    lmbda_inv: TensorVariable,
-    tau_inv: TensorVariable,
+    sigma2: TensorVariable,
+    lambda2: TensorVariable,
+    tau2: TensorVariable,
 ) -> Tuple[TensorVariable, TensorVariable]:
     r"""Gibbs kernel to sample from the posterior distributions of the horseshoe prior shrinkage parameters.
 
@@ -220,10 +220,14 @@ def horseshoe_posterior(
         Regression coefficients.
     sigma2
         Variance of the regression coefficients.
-    lmbda2_inv
-        Square inverse of the local shrinkage parameters.
-    tau2_inv
-        Square inverse of the global shrinkage parameters.
+    lambda2
+        Square of the local shrinkage parameters.
+    tau2
+        Square of the global shrinkage parameters.
+
+    Returns
+    -------
+    Posteriors for :math:`lambda` and :math:`tau`, respectively.
 
     References
     ----------
@@ -231,16 +235,19 @@ def horseshoe_posterior(
           Regularised Regression with the BayesReg Package.
 
     """
-    upsilon_inv = srng.exponential(1 + lmbda_inv)
-    zeta_inv = srng.exponential(1 + tau_inv)
+    lmbda2_inv = at.reciprocal(lambda2)
+    tau2_inv = at.reciprocal(tau2)
 
-    beta2 = beta * beta
-    lmbda_inv_new = srng.exponential(upsilon_inv + 0.5 * beta2 * tau_inv / sigma)
-    tau_inv_new = srng.gamma(
+    upsilon_inv = srng.exponential(1 + lmbda2_inv)
+    zeta_inv = srng.exponential(1 + tau2_inv)
+
+    beta2 = beta**2
+    lambda2_inv_new = srng.exponential(upsilon_inv + 0.5 * beta2 * tau2_inv / sigma2)
+    tau2_inv_new = srng.gamma(
         0.5 * (beta.shape[0] + 1),
-        zeta_inv + 0.5 * (beta2 * lmbda_inv_new).sum() / sigma,
+        zeta_inv + 0.5 * (beta2 * lambda2_inv_new).sum() / sigma2,
     )
-    return lmbda_inv_new, tau_inv_new
+    return at.reciprocal(at.sqrt(lambda2_inv_new)), at.reciprocal(at.sqrt(tau2_inv_new))
 
 
 @sampler_finder([NormalRV])
@@ -273,7 +280,7 @@ def normal_horseshoe_finder(fgraph, node, srng):
         return None
 
     lambda_posterior, tau_posterior = horseshoe_posterior(
-        srng, rv_var, 1.0, lambda_rv, tau_rv
+        srng, rv_var, 1.0, lambda_rv**2, tau_rv**2
     )
 
     if lambda_rv.name:
