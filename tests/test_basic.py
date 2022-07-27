@@ -5,7 +5,8 @@ import pytest
 from aesara.graph.basic import graph_inputs, io_toposort
 from aesara.ifelse import IfElse
 from aesara.tensor.random import RandomStream
-from aesara.tensor.random.basic import BetaRV, ExponentialRV, GammaRV
+from aesara.tensor.random.basic import BetaRV
+from scipy.linalg import toeplitz
 
 from aemcmc.basic import construct_sampler
 from aemcmc.opt import SubsumingElemwise
@@ -74,10 +75,11 @@ def test_create_gibbs():
     assert updates
 
     tau_post_step = sample_steps[tau_rv]
-    assert isinstance(tau_post_step.owner.op, GammaRV)
+    # These are *very* rough checks of the resulting graphs
+    assert tau_post_step.owner.op == at.reciprocal
 
     lmbda_post_step = sample_steps[lmbda_rv]
-    assert isinstance(lmbda_post_step.owner.op, ExponentialRV)
+    assert lmbda_post_step.owner.op == at.reciprocal
 
     beta_post_step = sample_steps[beta_rv]
     assert isinstance(beta_post_step.owner.op, IfElse)
@@ -101,23 +103,26 @@ def test_create_gibbs():
 
     rng = np.random.default_rng(2309)
 
-    X_val = rng.normal(0, 1, size=(10, 10))
-    X_val = X_val.dot(X_val.T)
-    X_val = X_val[:, :2]
-    a_val, b_val = 1.0, 10.0
-    beta_true = beta_val = np.array([1.0, 0.5])
-    tau_val, lmbda_val, h_val = 1.0, np.zeros(2), 10.0
+    N = 100
+    M = 10
+    S = toeplitz(0.5 ** np.arange(M))
+    X_val = rng.multivariate_normal(np.zeros(M), S, size=N)
+
+    a_val, b_val = 100.0, 1.0
+    beta_true = np.array([2, 0.02, 0.2, 0.1, 1] + [0.0] * (M - 5))
+    tau_val, lmbda_val, h_val = 1.0, np.ones(M), 10.0
 
     y_fn = aesara.function([X, a, b, beta_rv], Y_rv)
-    y_val = y_fn(X_val, a_val, b_val, beta_val)
+    y_val = y_fn(X_val, a_val, b_val, beta_true)
 
+    beta_pst_vals = []
     tau_pst_val, lmbda_pst_val, beta_pst_val, h_pst_val = (
         tau_val,
         lmbda_val,
-        beta_val,
+        np.zeros(M),
         h_val,
     )
-    for i in range(10):
+    for i in range(100):
         tau_pst_val, lmbda_pst_val, beta_pst_val, h_pst_val = sample_step(
             X_val,
             a_val,
@@ -128,5 +133,7 @@ def test_create_gibbs():
             beta_pst_val,
             h_pst_val,
         )
+        beta_pst_vals += [beta_pst_val]
 
-    assert np.allclose(beta_pst_val, beta_true, rtol=1e-1)
+    beta_pst_mean = np.mean(beta_pst_vals, axis=0)
+    assert np.allclose(beta_pst_mean, beta_true, atol=1e-1, rtol=1e-1)
