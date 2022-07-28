@@ -168,7 +168,7 @@ def test_nbinom_normal_posterior(srng):
     M = 10
     N = 50
 
-    true_h = 10
+    true_h = 100
     true_beta = np.array([2, 0.02, 0.2, 0.1, 1] + [0.0] * (M - 5))
     S = toeplitz(0.5 ** np.arange(M))
     X_at = srng.multivariate_normal(np.zeros(M), cov=S, size=N)
@@ -189,27 +189,28 @@ def test_nbinom_normal_posterior(srng):
         beta_post_vals += [beta_post_val]
 
     beta_post_mean = np.mean(beta_post_vals, axis=0)
-    assert np.allclose(beta_post_mean, true_beta, atol=3e-1)
+    assert np.allclose(beta_post_mean, true_beta, atol=1e-1)
 
 
 def test_nbinom_dispersion_posterior(srng):
     M = 10
-    N = 50
+    N = 100
 
-    true_h = 10
+    true_h = 100
     true_beta = np.array([2, 0.02, 0.2, 0.1, 1] + [0.1] * (M - 5))
     S = toeplitz(0.5 ** np.arange(M))
     X = srng.multivariate_normal(np.zeros(M), cov=S, size=N)
     p_at = at.sigmoid(-(X.dot(true_beta)))
     p, y = aesara.function([], [p_at, srng.nbinom(true_h, p_at)])()
 
-    a_val = 1.0
-    b_val = 2e-1
+    a_val = 70.0
+    b_val = 0.9
     a = at.as_tensor(a_val)
     b = at.as_tensor(b_val)
 
     h_samples, h_updates = aesara.scan(
-        lambda: nbinom_dispersion_posterior(srng, at.as_tensor(true_h), p, a, b, y),
+        lambda last_h: nbinom_dispersion_posterior(srng, last_h, p, a, b, y),
+        outputs_info=[at.as_tensor(90.0, dtype=np.float64)],
         n_steps=1000,
     )
 
@@ -217,12 +218,12 @@ def test_nbinom_dispersion_posterior(srng):
 
     h_mean_val = h_mean_fn()
 
-    # Make sure that the posterior `h` values aren't right around the prior
-    # mean
-    assert not np.allclose(h_mean_val, a_val / b_val, rtol=2e-1)
+    # Make sure that the average posterior `h` values have increased relative
+    # to the prior mean
+    assert h_mean_val > a_val / b_val
 
     # Make sure the posterior values are near the "true" value
-    assert np.allclose(h_mean_val, true_h, rtol=2e-1)
+    assert np.allclose(h_mean_val, true_h, rtol=1e-1)
 
 
 def test_bern_sigmoid_dot_match(srng):
@@ -256,9 +257,9 @@ def test_bern_sigmoid_dot_match(srng):
 
 def test_bern_normal_posterior(srng):
     M = 10
-    N = 50
+    N = 100
 
-    true_beta = np.array([2, 0.02, 0.2, 0.1, 1] + [0.1] * (M - 5))
+    true_beta = np.array([3, 2, 1, 0.5, 0.05] + [0.0] * (M - 5))
     S = toeplitz(0.5 ** np.arange(M))
     X_at = srng.multivariate_normal(np.zeros(M), cov=S, size=N)
     p_at = at.sigmoid(X_at.dot(true_beta))
@@ -271,12 +272,12 @@ def test_bern_normal_posterior(srng):
 
     beta_post_vals = []
     beta_post_val = np.zeros(M)
-    for i in range(3000):
+    for i in range(1000):
         beta_post_val = beta_post_fn(beta_post_val)
         beta_post_vals += [beta_post_val]
 
     beta_post_mean = np.mean(beta_post_vals, axis=0)
-    assert np.allclose(beta_post_mean, true_beta, atol=0.7)
+    assert np.allclose(beta_post_mean, true_beta, atol=0.5)
 
 
 def test_gamma_match(srng):
