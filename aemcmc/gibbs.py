@@ -3,9 +3,9 @@ from typing import List, Mapping, Optional, Tuple
 import aesara
 import aesara.tensor as at
 from aesara.graph.basic import Variable
-from aesara.graph.opt import in2out
-from aesara.graph.optdb import LocalGroupDB
-from aesara.graph.unify import eval_if_etuple
+from aesara.graph.rewriting.basic import in2out
+from aesara.graph.rewriting.db import LocalGroupDB
+from aesara.graph.rewriting.unify import eval_if_etuple
 from aesara.ifelse import ifelse
 from aesara.tensor.math import Dot
 from aesara.tensor.random import RandomStream
@@ -19,9 +19,9 @@ from aemcmc.dists import (
     multivariate_normal_rue2005,
     polyagamma,
 )
-from aemcmc.opt import sampler_finder, sampler_finder_db
+from aemcmc.rewriting import sampler_finder, sampler_finder_db
 
-gibbs_db = LocalGroupDB(apply_all_opts=True)
+gibbs_db = LocalGroupDB(apply_all_rewrites=True)
 gibbs_db.name = "gibbs_db"
 
 

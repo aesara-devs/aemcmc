@@ -5,7 +5,7 @@ from aesara.graph.fg import FunctionGraph
 from aesara.tensor.random.utils import RandomStream
 from aesara.tensor.var import TensorVariable
 
-from aemcmc.opt import (
+from aemcmc.rewriting import (
     SamplerTracker,
     construct_ir_fgraph,
     expand_subsumptions,
@@ -41,7 +41,7 @@ def construct_sampler(
 
     fgraph.attach_feature(SamplerTracker(srng))
 
-    _ = sampler_rewrites_db.query("+basic").optimize(fgraph)
+    _ = sampler_rewrites_db.query("+basic").rewrite(fgraph)
 
     random_vars = tuple(rv for rv in fgraph.outputs if rv not in obs_rvs_to_values)
 
@@ -87,7 +87,7 @@ def construct_sampler(
         # Update the other sampled random variables in this step's graph
         sfgraph.replace_all(list(posterior_sample_steps.items()), import_missing=True)
 
-        expand_subsumptions.optimize(sfgraph)
+        expand_subsumptions.rewrite(sfgraph)
 
         step = sfgraph.outputs[0]
 

@@ -4,7 +4,11 @@ import aesara
 from aehmc import nuts as aehmc_nuts
 from aehmc.utils import RaveledParamsMap
 from aeppl import joint_logprob
-from aeppl.transforms import RVTransform, TransformValuesOpt, _default_transformed_rv
+from aeppl.transforms import (
+    RVTransform,
+    TransformValuesRewrite,
+    _default_transformed_rv,
+)
 from aesara.tensor.random import RandomStream
 from aesara.tensor.var import TensorVariable
 
@@ -62,7 +66,7 @@ def nuts(
     }
 
     logprob_sum = joint_logprob(
-        model.rvs_to_values, extra_rewrites=TransformValuesOpt(transforms)
+        model.rvs_to_values, extra_rewrites=TransformValuesRewrite(transforms)
     )
 
     # Then we transform the value variables.

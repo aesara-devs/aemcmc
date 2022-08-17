@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 import scipy.special
 from aesara.graph.basic import equal_computations
-from aesara.graph.opt_utils import optimize_graph
+from aesara.graph.rewriting.utils import rewrite_graph
 from aesara.tensor.random.utils import RandomStream
 from scipy.linalg import toeplitz
 
@@ -19,7 +19,7 @@ from aemcmc.gibbs import (
     normal_regression_posterior,
     sample_CRT,
 )
-from aemcmc.opt import SamplerTracker, construct_ir_fgraph, sampler_rewrites_db
+from aemcmc.rewriting import SamplerTracker, construct_ir_fgraph, sampler_rewrites_db
 
 
 @pytest.fixture
@@ -233,7 +233,7 @@ def test_bern_sigmoid_dot_match(srng):
     p = at.sigmoid(-eta)
     Y_rv = srng.bernoulli(p)
 
-    Y_rv = optimize_graph(Y_rv)
+    Y_rv = rewrite_graph(Y_rv)
 
     assert bern_sigmoid_dot_match(Y_rv)
 
@@ -289,7 +289,7 @@ def test_gamma_match(srng):
     b = at.scalar("b")
     beta_rv = srng.gamma(a, b)
 
-    beta_rv = optimize_graph(beta_rv)
+    beta_rv = rewrite_graph(beta_rv)
 
     a_m, b_m = gamma_match(beta_rv)
 
@@ -326,7 +326,7 @@ def test_nbinom_logistic_horseshoe_finders():
 
     fgraph.attach_feature(SamplerTracker(srng))
 
-    _ = sampler_rewrites_db.query("+basic").optimize(fgraph)
+    _ = sampler_rewrites_db.query("+basic").rewrite(fgraph)
 
     discovered_samplers = fgraph.sampler_mappings.rvs_to_samplers
     discovered_samplers = {
@@ -366,7 +366,7 @@ def test_bern_logistic_horseshoe_finders():
 
     fgraph.attach_feature(SamplerTracker(srng))
 
-    _ = sampler_rewrites_db.query("+basic").optimize(fgraph)
+    _ = sampler_rewrites_db.query("+basic").rewrite(fgraph)
 
     discovered_samplers = fgraph.sampler_mappings.rvs_to_samplers
     discovered_samplers = {
