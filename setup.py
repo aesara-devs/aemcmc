@@ -17,9 +17,9 @@ setup(
     install_requires=[
         "numpy>=1.18.1",
         "scipy>=1.4.0",
-        "aesara>=2.6.6",
-        "aeppl>=0.0.31",
-        "aehmc>=0.0.6",
+        "aesara>=2.8.0",
+        "aeppl>=0.0.35",
+        "aehmc>=0.0.9",
         "polyagamma>=1.3.2",
         "cons",
         "logical-unification",

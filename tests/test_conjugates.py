@@ -1,7 +1,7 @@
 import aesara
 import aesara.tensor as at
 import pytest
-from aesara.graph.unify import eval_if_etuple
+from aesara.graph.rewriting.unify import eval_if_etuple
 from aesara.tensor.random import RandomStream
 from kanren import run
 from unification import var

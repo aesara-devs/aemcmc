@@ -9,7 +9,7 @@ from aesara.tensor.random.basic import BetaRV
 from scipy.linalg import toeplitz
 
 from aemcmc.basic import construct_sampler
-from aemcmc.opt import SubsumingElemwise
+from aemcmc.rewriting import SubsumingElemwise
 
 
 def test_closed_form_posterior():

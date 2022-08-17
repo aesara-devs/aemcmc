@@ -2,19 +2,19 @@ from collections.abc import Mapping
 from functools import wraps
 from typing import Callable, Dict, Iterable, List, Optional, Sequence, Set, Tuple, Union
 
-from aeppl.opt import PreserveRVMappings
+from aeppl.rewriting import PreserveRVMappings
 from aesara.compile.builders import OpFromGraph
 from aesara.compile.mode import optdb
 from aesara.graph.basic import Apply, Variable, clone_replace, io_toposort
 from aesara.graph.features import AlreadyThere, Feature
 from aesara.graph.fg import FunctionGraph
 from aesara.graph.op import Op
-from aesara.graph.opt import in2out, local_optimizer
-from aesara.graph.optdb import SequenceDB
-from aesara.tensor.basic_opt import ShapeFeature
+from aesara.graph.rewriting.basic import in2out, node_rewriter
+from aesara.graph.rewriting.db import SequenceDB
 from aesara.tensor.elemwise import DimShuffle, Elemwise
 from aesara.tensor.random.op import RandomVariable
 from aesara.tensor.random.utils import RandomStream
+from aesara.tensor.rewriting.basic import ShapeFeature
 from aesara.tensor.var import TensorVariable
 from cons.core import _car
 from unification.core import _unify
@@ -25,7 +25,7 @@ SamplerFunctionReturnType = Optional[
 SamplerFunctionType = Callable[
     [FunctionGraph, Apply, RandomStream], SamplerFunctionReturnType
 ]
-LocalOptimizerReturnType = Optional[Union[Dict[Variable, Variable], Sequence[Variable]]]
+LocalRewriterReturnType = Optional[Union[Dict[Variable, Variable], Sequence[Variable]]]
 
 sampler_ir_db = SequenceDB()
 sampler_ir_db.name = "sampler_ir_db"
@@ -90,7 +90,7 @@ def construct_ir_fgraph(
     # Update `obs_rvs_to_values` so that it uses the new cloned variables
     obs_rvs_to_values = {memo[k]: v for k, v in obs_rvs_to_values.items()}
 
-    sampler_ir_db.query("+basic").optimize(fgraph)
+    sampler_ir_db.query("+basic").rewrite(fgraph)
 
     new_to_old_rvs = {
         new_rv: old_rv for old_rv, new_rv in zip(rv_outputs, fgraph.outputs)
@@ -123,7 +123,7 @@ class SamplerTracker(Feature):
 
 
 def sampler_finder(tracks: Optional[Sequence[Union[Op, type]]]):
-    """Construct a `LocalOptimizer` that identifies sample steps.
+    """Construct a `NodeRewriter` that identifies sample steps.
 
     This is a decorator that is used as follows:
 
@@ -140,11 +140,11 @@ def sampler_finder(tracks: Optional[Sequence[Union[Op, type]]]):
     """
 
     def decorator(f: SamplerFunctionType):
-        @local_optimizer(tracks)
+        @node_rewriter(tracks)
         @wraps(f)
         def sampler_finder(
             fgraph: FunctionGraph, node: Apply
-        ) -> LocalOptimizerReturnType:
+        ) -> LocalRewriterReturnType:
             sampler_mappings = getattr(fgraph, "sampler_mappings", None)
 
             # TODO: This assumes that `node` is a `RandomVariable`-generated `Apply` node
@@ -249,7 +249,7 @@ def car_SubsumingElemwise(x):
 _car.add((SubsumingElemwise,), car_SubsumingElemwise)
 
 
-@local_optimizer([Elemwise])
+@node_rewriter([Elemwise])
 def local_elemwise_dimshuffle_subsume(fgraph, node):
     r"""This rewrite converts `DimShuffle`s in the `Elemwise` inputs into a single `Op`.
 
@@ -359,7 +359,7 @@ sampler_ir_db.register(
 )
 
 
-@local_optimizer([Elemwise])
+@node_rewriter([Elemwise])
 def inline_SubsumingElemwise(fgraph, node):
 
     op = node.op

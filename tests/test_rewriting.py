@@ -6,7 +6,7 @@ from cons import car, cdr
 from etuples import etuple, etuplize
 from unification import unify
 
-from aemcmc.opt import SubsumingElemwise, local_elemwise_dimshuffle_subsume
+from aemcmc.rewriting import SubsumingElemwise, local_elemwise_dimshuffle_subsume
 
 
 def test_SubsumingElemwise_basics():

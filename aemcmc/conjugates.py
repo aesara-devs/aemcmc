@@ -1,13 +1,13 @@
 import aesara.tensor as at
-from aesara.graph.opt import in2out, local_optimizer
-from aesara.graph.optdb import LocalGroupDB
-from aesara.graph.unify import eval_if_etuple
+from aesara.graph.rewriting.basic import in2out, node_rewriter
+from aesara.graph.rewriting.db import LocalGroupDB
+from aesara.graph.rewriting.unify import eval_if_etuple
 from aesara.tensor.random.basic import BinomialRV
 from etuples import etuple, etuplize
 from kanren import eq, lall, run
 from unification import var
 
-from aemcmc.opt import sampler_finder_db
+from aemcmc.rewriting import sampler_finder_db
 
 
 def beta_binomial_conjugateo(observed_val, observed_rv_expr, posterior_expr):
@@ -66,7 +66,7 @@ def beta_binomial_conjugateo(observed_val, observed_rv_expr, posterior_expr):
     )
 
 
-@local_optimizer([BinomialRV])
+@node_rewriter([BinomialRV])
 def local_beta_binomial_posterior(fgraph, node):
 
     sampler_mappings = getattr(fgraph, "sampler_mappings", None)
@@ -98,7 +98,7 @@ def local_beta_binomial_posterior(fgraph, node):
     return rv_var.owner.outputs
 
 
-conjugates_db = LocalGroupDB(apply_all_opts=True)
+conjugates_db = LocalGroupDB(apply_all_rewrites=True)
 conjugates_db.name = "conjugates_db"
 conjugates_db.register("beta_binomial", local_beta_binomial_posterior, "basic")
 
