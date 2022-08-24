@@ -14,7 +14,7 @@ from aesara.graph.rewriting.db import SequenceDB
 from aesara.tensor.elemwise import DimShuffle, Elemwise
 from aesara.tensor.random.op import RandomVariable
 from aesara.tensor.random.utils import RandomStream
-from aesara.tensor.rewriting.basic import ShapeFeature
+from aesara.tensor.rewriting.shape import ShapeFeature
 from aesara.tensor.var import TensorVariable
 from cons.core import _car
 from unification.core import _unify
