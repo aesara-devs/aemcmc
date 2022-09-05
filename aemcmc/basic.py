@@ -1,10 +1,12 @@
 from typing import Dict, Tuple
 
+import aesara.tensor as at
 from aesara.graph.basic import Variable
 from aesara.graph.fg import FunctionGraph
 from aesara.tensor.random.utils import RandomStream
 from aesara.tensor.var import TensorVariable
 
+from aemcmc.nuts import construct_nuts_sampler
 from aemcmc.rewriting import (
     SamplerTracker,
     construct_ir_fgraph,
@@ -19,6 +21,7 @@ def construct_sampler(
     Dict[TensorVariable, TensorVariable],
     Dict[Variable, Variable],
     Dict[TensorVariable, TensorVariable],
+    Dict[str, TensorVariable],
 ]:
     r"""Eagerly construct a sampler for a given set of observed variables and their observations.
 
@@ -55,6 +58,7 @@ def construct_sampler(
     # TODO FIXME: Get/extract `Scan`-generated updates
     posterior_updates: Dict[Variable, Variable] = {}
 
+    parameters: Dict[str, TensorVariable] = {}
     rvs_without_samplers = set()
 
     for rv in fgraph.outputs:
@@ -103,14 +107,26 @@ def construct_sampler(
             updates = dict(zip(update_keys, update_values))
             posterior_updates.update(updates)
 
+    # We use the NUTS sampler for the remaining variables
+    # TODO: NUTS cannot handle RV with discrete supports
+    # TODO: Track the transformations made by NUTS? It would make more sense to
+    # apply the transforms on the probabilistic graph, in which case we would
+    # only need to return the transformed graph.
     if rvs_without_samplers:
-        # TODO: Assign NUTS to these
-        raise NotImplementedError(
-            f"Could not find a posterior samplers for {rvs_without_samplers}"
-        )
+        inverse_mass_matrix = at.vector("inverse_mass_matrix")
+        step_size = at.scalar("step_size")
+        parameters["step_size"] = step_size
+        parameters["inverse_mass_matrix"] = inverse_mass_matrix
 
-    # TODO: Track/handle "auxiliary/augmentation" variables introduced by sample
-    # steps?
+        # We condition on the updated values of the other rvs
+        rvs_to_values = {rv: rvs_to_init_vals[rv] for rv in rvs_without_samplers}
+        rvs_to_values.update(posterior_sample_steps)
+
+        nuts_sample_steps, updates = construct_nuts_sampler(
+            srng, rvs_without_samplers, rvs_to_values, inverse_mass_matrix, step_size
+        )
+        posterior_sample_steps.update(nuts_sample_steps)
+        posterior_updates.update(updates)
 
     return (
         {
@@ -120,4 +136,5 @@ def construct_sampler(
         },
         posterior_updates,
         {new_to_old_rvs[rv]: init_var for rv, init_var in rvs_to_init_vals.items()},
+        parameters,
     )

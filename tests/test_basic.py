@@ -25,9 +25,12 @@ def test_closed_form_posterior_beta_binomial():
     y_vv = Y_rv.clone()
     y_vv.name = "y"
 
-    sample_steps, updates, initial_values = construct_sampler({Y_rv: y_vv}, srng)
+    sample_steps, updates, initial_values, parameters = construct_sampler(
+        {Y_rv: y_vv}, srng
+    )
 
     p_posterior_step = sample_steps[p_rv]
+    assert len(parameters) == 0
     assert isinstance(p_posterior_step.owner.op, BetaRV)
 
 
@@ -43,24 +46,80 @@ def test_closed_form_posterior_gamma_poisson():
     y_vv = Y_rv.clone()
     y_vv.name = "y"
 
-    sample_steps, updates, initial_values = construct_sampler({Y_rv: y_vv}, srng)
+    sample_steps, updates, initial_values, parameters = construct_sampler(
+        {Y_rv: y_vv}, srng
+    )
 
     p_posterior_step = sample_steps[l_rv]
+    assert len(parameters) == 0
     assert isinstance(p_posterior_step.owner.op, GammaRV)
 
 
-def test_no_samplers():
+@pytest.mark.parametrize("size", [1, (1,), (2, 3)])
+def test_nuts_sampler_single_variable(size):
+    """We make sure that the NUTS sampler compiles and updates the chains for
+    different sizes of the random variable.
+
+    """
     srng = RandomStream(0)
 
-    size = at.lscalar("size")
-    tau_rv = srng.halfcauchy(0, 1, name="tau")
-    Y_rv = srng.halfcauchy(0, tau_rv, size=size, name="Y")
+    tau_rv = srng.halfcauchy(0, 1, size=size, name="tau")
+    Y_rv = srng.halfcauchy(0, tau_rv, name="Y")
 
     y_vv = Y_rv.clone()
     y_vv.name = "y"
 
-    with pytest.raises(NotImplementedError):
-        construct_sampler({Y_rv: y_vv}, srng)
+    sample_steps, updates, initial_values, parameters = construct_sampler(
+        {Y_rv: y_vv}, srng
+    )
+
+    assert len(parameters) == 2
+    assert len(sample_steps) == 1
+
+    tau_post_step = sample_steps[tau_rv]
+    assert y_vv in graph_inputs([tau_post_step])
+
+    inputs = [
+        initial_values[tau_rv],
+        y_vv,
+        parameters["step_size"],
+        parameters["inverse_mass_matrix"],
+    ]
+    output = tau_post_step
+    sample_step = aesara.function(inputs, output)
+
+    tau_val = np.ones(shape=size)
+    y_val = np.ones(shape=size)
+    step_size = 1e-1
+    inverse_mass_matrix = np.ones(shape=size).flatten()
+    res = sample_step(tau_val, y_val, step_size, inverse_mass_matrix)
+    with pytest.raises(AssertionError):
+        np.testing.assert_equal(tau_val, res)
+
+
+def test_nuts_with_closed_form():
+    """Make sure that the NUTS sampler works in combination with closed-form posteriors."""
+    srng = RandomStream(0)
+
+    alpha_tt = at.scalar("alpha")
+    beta_rv = srng.halfnormal(1.0, name="beta")
+    l_rv = srng.gamma(alpha_tt, beta_rv, name="p")
+
+    Y_rv = srng.poisson(l_rv, name="Y")
+
+    y_vv = Y_rv.clone()
+    y_vv.name = "y"
+
+    sample_steps, updates, initial_values, parameters = construct_sampler(
+        {Y_rv: y_vv}, srng
+    )
+
+    p_posterior_step = sample_steps[l_rv]
+    assert len(parameters) == 2
+    assert len(initial_values) == 2
+    assert isinstance(p_posterior_step.owner.op, GammaRV)
+
+    assert beta_rv in sample_steps
 
 
 def test_create_gibbs():
@@ -87,7 +146,9 @@ def test_create_gibbs():
 
     sample_vars = [tau_rv, lmbda_rv, beta_rv, h_rv]
 
-    sample_steps, updates, initial_values = construct_sampler({Y_rv: y_vv}, srng)
+    sample_steps, updates, initial_values, parameters = construct_sampler(
+        {Y_rv: y_vv}, srng
+    )
 
     assert len(sample_steps) == 4
     assert updates
