@@ -5,14 +5,14 @@ import pytest
 from aesara.graph.basic import graph_inputs, io_toposort
 from aesara.ifelse import IfElse
 from aesara.tensor.random import RandomStream
-from aesara.tensor.random.basic import BetaRV
+from aesara.tensor.random.basic import BetaRV, GammaRV
 from scipy.linalg import toeplitz
 
 from aemcmc.basic import construct_sampler
 from aemcmc.rewriting import SubsumingElemwise
 
 
-def test_closed_form_posterior():
+def test_closed_form_posterior_beta_binomial():
     srng = RandomStream(0)
 
     alpha_tt = at.scalar("alpha")
@@ -29,6 +29,24 @@ def test_closed_form_posterior():
 
     p_posterior_step = sample_steps[p_rv]
     assert isinstance(p_posterior_step.owner.op, BetaRV)
+
+
+def test_closed_form_posterior_gamma_poisson():
+    srng = RandomStream(0)
+
+    alpha_tt = at.scalar("alpha")
+    beta_tt = at.scalar("beta")
+    l_rv = srng.gamma(alpha_tt, beta_tt, name="p")
+
+    Y_rv = srng.poisson(l_rv, name="Y")
+
+    y_vv = Y_rv.clone()
+    y_vv.name = "y"
+
+    sample_steps, updates, initial_values = construct_sampler({Y_rv: y_vv}, srng)
+
+    p_posterior_step = sample_steps[l_rv]
+    assert isinstance(p_posterior_step.owner.op, GammaRV)
 
 
 def test_no_samplers():
