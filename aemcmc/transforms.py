@@ -22,14 +22,15 @@ def location_scale_transform(in_expr, out_expr):
     .. math::
 
         \begin{equation*}
-            \frac{
-                X \sim \operatorname{N}\left(\mu_x, \sigma_x^2\right), \quad
-                Y \sim \operatorname{N}\left(\mu_y, \sigma_y^2\right), \quad
-                X + Y = Z
+           \frac{
+                Y \sim \operatorname{P}(0, 1), \quad
+                X = \mu + \sigma\,Y
             }{
-                Z \sim \operatorname{N}\left(\mu_x + \mu_y, \sigma_x^2 + \sigma_y^2\right)
+                X \sim \operatorname{P}\left(\mu, \sigma\right)
             }
         \end{equation*}
+
+    where `P` is any distribution in the location-scale family.
 
     Parameters
     ----------
