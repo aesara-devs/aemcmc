@@ -70,3 +70,54 @@ def location_scale_transform(in_expr, out_expr):
         eq(out_expr, noncentered_et),
         location_scale_family(distribution_lv),
     )
+
+
+def invgamma_exponential(invgamma_expr, invexponential_expr):
+    r"""Produce a goal that represents the relation between the inverse gamma distribution
+    and the inverse of an exponential distribution.
+
+    .. math::
+
+        \begin{equation*}
+            \frac{
+                X \sim \operatorname{Gamma^{-1}}\left(1, c\right)
+            }{
+                Y = 1 / X, \quad
+                Y \sim \operatorname{Exp}\left(c\right)
+            }
+        \end{equation*}
+
+    TODO: This is a particular case of a more general relation between the inverse gamma
+    and the gamma distribution (of which the exponential distribution is a special case).
+    We should implement this more general relation, and the special case separately in the
+    future.
+
+    Parameters
+    ----------
+    invgamma_expr
+        An expression that represents a random variable with an inverse gamma
+        distribution with a shape parameter equal to 1.
+    invexponential_expr
+        An expression that represents the inverse of a random variable with an
+        exponential distribution.
+
+    """
+    c_lv = var()
+    rng_lv, size_lv, dtype_lv = var(), var(), var()
+
+    invgamma_et = etuple(
+        etuplize(at.random.invgamma), rng_lv, size_lv, dtype_lv, at.as_tensor(1.0), c_lv
+    )
+
+    exponential_et = etuple(
+        etuplize(at.random.exponential),
+        c_lv,
+        rng=rng_lv,
+        size=size_lv,
+        dtype=dtype_lv,
+    )
+    invexponential_et = etuple(at.true_div, at.as_tensor(1.0), exponential_et)
+
+    return lall(
+        eq(invgamma_expr, invgamma_et), eq(invexponential_expr, invexponential_et)
+    )
