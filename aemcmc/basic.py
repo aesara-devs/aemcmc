@@ -1,6 +1,5 @@
 from typing import Dict, Tuple
 
-import aesara.tensor as at
 from aesara.graph.basic import Variable
 from aesara.graph.fg import FunctionGraph
 from aesara.tensor.random.utils import RandomStream
@@ -113,20 +112,16 @@ def construct_sampler(
     # apply the transforms on the probabilistic graph, in which case we would
     # only need to return the transformed graph.
     if rvs_without_samplers:
-        inverse_mass_matrix = at.vector("inverse_mass_matrix")
-        step_size = at.scalar("step_size")
-        parameters["step_size"] = step_size
-        parameters["inverse_mass_matrix"] = inverse_mass_matrix
-
         # We condition on the updated values of the other rvs
         rvs_to_values = {rv: rvs_to_init_vals[rv] for rv in rvs_without_samplers}
         rvs_to_values.update(posterior_sample_steps)
 
-        nuts_sample_steps, updates = construct_nuts_sampler(
-            srng, rvs_without_samplers, rvs_to_values, inverse_mass_matrix, step_size
+        nuts_sample_steps, updates, nuts_parameters = construct_nuts_sampler(
+            srng, rvs_without_samplers, rvs_to_values
         )
         posterior_sample_steps.update(nuts_sample_steps)
         posterior_updates.update(updates)
+        parameters.update(nuts_parameters)
 
     return (
         {
