@@ -1,6 +1,7 @@
 from typing import Callable, Dict, Tuple
 
 import aesara
+import aesara.tensor as at
 from aehmc import nuts as aehmc_nuts
 from aehmc.utils import RaveledParamsMap
 from aeppl import joint_logprob
@@ -9,6 +10,7 @@ from aeppl.transforms import (
     TransformValuesRewrite,
     _default_transformed_rv,
 )
+from aesara import config
 from aesara.tensor.random import RandomStream
 from aesara.tensor.random.op import RandomVariable
 from aesara.tensor.var import TensorVariable
@@ -31,9 +33,7 @@ def construct_nuts_sampler(
     srng: RandomStream,
     to_sample_rvs,  # RVs to sample
     rvs_to_values,  # All RVs to values
-    inverse_mass_matrix: TensorVariable,
-    step_size: TensorVariable,
-) -> Tuple[Dict[RandomVariable, TensorVariable], Dict]:
+) -> Tuple[Dict[RandomVariable, TensorVariable], Dict, Dict[str, TensorVariable]]:
     """Build a NUTS kernel and the initial state.
 
     This function currently assumes that we will update the value of all of the
@@ -47,11 +47,6 @@ def construct_nuts_sampler(
     rvs_to_values
         A dictionary that maps all random variables in the model (including
         those not sampled with NUTS) to their value variable.
-    step_size
-        The step size used in the symplectic integrator.
-    inverse_mass_matrix
-        One or two-dimensional array used as the inverse mass matrix that
-        defines the euclidean metric.
 
     Returns
     -------
@@ -104,6 +99,12 @@ def construct_nuts_sampler(
     initial_q = rp_map.ravel_params(tuple(transformed_vvs.values()))
     initial_state = aehmc_nuts.new_state(initial_q, logprob_fn)
 
+    # Initialize the parameter values
+    step_size = at.scalar("step_size", dtype=config.floatX)
+    inverse_mass_matrix = at.tensor(
+        name="inverse_mass_matrix", shape=initial_q.type.shape, dtype=config.floatX
+    )
+
     # TODO: Does that lead to wasteful computation? Or is it handled by Aesara?
     (new_q, *_), updates = nuts_kernel(*initial_state, step_size, inverse_mass_matrix)
     transformed_params = rp_map.unravel_params(new_q)
@@ -113,7 +114,11 @@ def construct_nuts_sampler(
         if rv in to_sample_rvs
     }
 
-    return params, updates
+    return (
+        params,
+        updates,
+        {"step_size": step_size, "inverse_mass_matrix": inverse_mass_matrix},
+    )
 
 
 def get_transform(rv: TensorVariable):
