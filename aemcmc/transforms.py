@@ -10,6 +10,7 @@ fact(location_scale_family, at.random.gumbel)
 fact(location_scale_family, at.random.laplace)
 fact(location_scale_family, at.random.logistic)
 fact(location_scale_family, at.random.normal)
+fact(location_scale_family, at.random.t)
 
 
 def location_scale_transform(in_expr, out_expr):
