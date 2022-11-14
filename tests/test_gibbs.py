@@ -109,7 +109,9 @@ def test_normal_horseshoe_sampler(srng, N, p, rtol):
     lambda_rv = srng.halfcauchy(0, 1, size=p)
 
     tau_vv = tau_rv.clone()
+    tau_vv.name = "tau"
     lambda_vv = lambda_rv.clone()
+    lambda_vv.name = "lambda"
 
     beta_post = normal_regression_posterior(
         srng, np.ones(N), at.reciprocal(tau_vv * lambda_vv), at.as_tensor(X), y
