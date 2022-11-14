@@ -6,6 +6,7 @@ from aesara.graph.basic import Variable
 from aesara.graph.rewriting.basic import in2out
 from aesara.graph.rewriting.db import LocalGroupDB
 from aesara.graph.rewriting.unify import eval_if_etuple
+from aesara.graph.type import Constant
 from aesara.ifelse import ifelse
 from aesara.tensor.math import Dot
 from aesara.tensor.random import RandomStream
@@ -20,9 +21,15 @@ from aemcmc.dists import (
     polyagamma,
 )
 from aemcmc.rewriting import sampler_finder, sampler_finder_db
+from aemcmc.types import SamplingStep
 
 gibbs_db = LocalGroupDB(apply_all_rewrites=True)
 gibbs_db.name = "gibbs_db"
+
+
+def remove_constants(inputs):
+    inputs_at = [at.as_tensor_variable(x) for x in inputs]
+    return [x for x in inputs_at if not isinstance(x, Constant)]
 
 
 def normal_regression_overdetermined_posterior(
@@ -120,11 +127,13 @@ def normal_regression_posterior(
     A sample from :math:`\beta \mid z`.
 
     """
-    return ifelse(
+    beta_posterior = ifelse(
         X.shape[1] > X.shape[0],
         normal_regression_underdetermined_posterior(srng, omega, lmbdatau_inv, X, z),
         normal_regression_overdetermined_posterior(srng, omega, lmbdatau_inv, X, z),
     )
+
+    return beta_posterior
 
 
 halfcauchy_1_lv, halfcauchy_2_lv = var(), var()
@@ -247,7 +256,15 @@ def horseshoe_posterior(
         0.5 * (beta.shape[0] + 1),
         zeta_inv + 0.5 * (beta2 * lambda2_inv_new).sum() / sigma2,
     )
-    return at.reciprocal(at.sqrt(lambda2_inv_new)), at.reciprocal(at.sqrt(tau2_inv_new))
+
+    lambda2_update = at.reciprocal(at.sqrt(lambda2_inv_new))
+    tau2_update = at.reciprocal(at.sqrt(tau2_inv_new))
+
+    return lambda2_update, tau2_update
+
+
+class HorseshoeGibbsKernel(SamplingStep):
+    """An `Op` that represents a state update with the FFBS sampler."""
 
 
 @sampler_finder([NormalRV])
@@ -279,15 +296,20 @@ def normal_horseshoe_finder(fgraph, node, srng):
     except ValueError:  # pragma: no cover
         return None
 
+    tau2 = tau_rv**2
+    lambda2 = lambda_rv**2
     lambda_posterior, tau_posterior = horseshoe_posterior(
-        srng, rv_var, 1.0, lambda_rv**2, tau_rv**2
+        srng, rv_var, at.as_tensor(1.0), lambda2, tau2
     )
 
-    if lambda_rv.name:
-        lambda_posterior.name = f"{lambda_rv.name}_posterior"
+    # Build an `Op` for the sampling kernel
+    outputs = [lambda_posterior, tau_posterior]
+    inputs = remove_constants([rv_var, lambda2, tau2])
+    gibbs = HorseshoeGibbsKernel(inputs, outputs)
 
-    if tau_rv.name:
-        tau_posterior.name = f"{tau_rv.name}_posterior"
+    lambda_posterior, tau_posterior = gibbs(*inputs)
+    lambda_posterior.name = f"{lambda_rv.name or 'lambda'}_posterior"
+    tau_posterior.name = f"{tau_rv.name or 'tau'}_posterior"
 
     return [(lambda_rv, lambda_posterior, None), (tau_rv, tau_posterior, None)]
 
@@ -388,12 +410,12 @@ def sample_CRT(
 
 def nbinom_dispersion_posterior(
     srng: RandomStream,
-    h_last: TensorVariable,
+    h: TensorVariable,
     p: TensorVariable,
     a: TensorVariable,
     b: TensorVariable,
     y: TensorVariable,
-) -> Tuple[TensorVariable, Optional[Mapping[Variable, Variable]]]:
+) -> Tuple[TensorVariable, Mapping[Variable, Variable]]:
     r"""Sample the conditional posterior for the dispersion parameter under a negative-binomial and gamma prior.
 
     In other words, this draws a sample from :math:`h \mid Y = y` per
@@ -432,8 +454,8 @@ def nbinom_dispersion_posterior(
     ----------
     srng
         The random number generator from which samples are drawn.
-    h_last
-        The previous sample value of :math:`h`.
+    h
+        The  value of :math:`h`.
     p
         The success probability parameter in the negative-binomial distribution of :math:`Y`.
     a
@@ -455,11 +477,13 @@ def nbinom_dispersion_posterior(
         2012: 1343–50. https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4180062/.
 
     """
-    Ls, updates = sample_CRT(srng, y, h_last)
+    Ls, updates = sample_CRT(srng, y, h)
     L_sum = Ls.sum(axis=-1)
-    h = srng.gamma(a + L_sum, at.reciprocal(b) - at.sum(at.log(1 - p), axis=-1))
-    h.name = f"{h_last.name or 'h'}_posterior"
-    return h, updates
+    h_posterior = srng.gamma(
+        a + L_sum, at.reciprocal(b) - at.sum(at.log(1 - p), axis=-1)
+    )
+
+    return h_posterior, updates
 
 
 def nbinom_normal_posterior(srng, beta, beta_std, X, h, y):
@@ -518,6 +542,7 @@ def nbinom_normal_posterior(srng, beta, beta_std, X, h, y):
           2019 September ; 14(3): 829–855. doi:10.1214/18-ba1132.
 
     """
+
     # This effectively introduces a new term, `w`, to the model.
     # TODO: We could/should generate a graph that uses this scale-mixture
     # "expanded" form and find/create the posteriors from there
@@ -528,10 +553,25 @@ def nbinom_normal_posterior(srng, beta, beta_std, X, h, y):
 
     beta_posterior = normal_regression_posterior(srng, w, tau_beta, X, z)
 
-    if beta.name:
-        beta_posterior.name = f"{beta.name}_posterior"
-
     return beta_posterior
+
+
+class NBRegressionGibbsKernel(SamplingStep):
+    """An `Op` that represents the update of the regression parameter of
+    a negative binomial regression.
+
+    """
+
+    default_output = 0
+
+
+class DispersionGibbsKernel(SamplingStep):
+    """An `Op` that represents the state update for the dispersion parameter
+    of a negative binomial in a negative binomial regression.
+
+    """
+
+    default_output = 0
 
 
 @sampler_finder([NegBinomialRV])
@@ -571,9 +611,16 @@ def nbinom_logistic_finder(fgraph, node, srng):
     except ValueError:  # pragma: no cover
         return None
 
-    beta_posterior = nbinom_normal_posterior(
-        srng, beta_rv, beta_rv.owner.inputs[4], X, h, y
-    )
+    beta_std = beta_rv.owner.inputs[4]
+    beta_posterior = nbinom_normal_posterior(srng, beta_rv, beta_std, X, h, y)
+
+    # Build the `Op` corresponding to the sampling step
+    outputs = [beta_posterior]
+    inputs = remove_constants([beta_rv, beta_std, X, h, y])
+    gibbs = NBRegressionGibbsKernel(inputs, outputs)
+
+    beta_posterior = gibbs(*inputs)
+    beta_posterior.name = f"{beta_rv.name or 'beta'}_posterior"
 
     res: List[
         Tuple[TensorVariable, TensorVariable, Optional[Mapping[Variable, Variable]]]
@@ -588,6 +635,23 @@ def nbinom_logistic_finder(fgraph, node, srng):
     p = at.sigmoid(-X @ beta_posterior)
 
     h_posterior, updates = nbinom_dispersion_posterior(srng, h, p, a, b, y)
+
+    # Build the `Op` corresponding to the sampling step
+    update_outputs = [h_posterior.owner.inputs[0].default_update]
+    update_outputs.extend(updates.values())
+
+    outputs = [h_posterior] + update_outputs
+    inputs = remove_constants([h, p, a, b, y])
+    gibbs = DispersionGibbsKernel(inputs, outputs)
+
+    h_posterior = gibbs(*inputs)
+    h_posterior.name = f"{h.name or 'h'}_posterior"
+
+    updates_offset = len(inputs)
+    updates = {
+        h_posterior.owner.inputs[updates_offset]: h_posterior.owner.outputs[1],
+        h_posterior.owner.inputs[updates_offset + 1]: h_posterior.owner.outputs[2],
+    }
 
     res.append((h, h_posterior, updates))
 
@@ -666,7 +730,6 @@ def bern_normal_posterior(
           Regularised Regression with the BayesReg Package.
 
     """
-
     w = srng.gen(polyagamma, 1, X @ beta)
     z = (y - 0.5) / w
 
@@ -674,10 +737,16 @@ def bern_normal_posterior(
 
     beta_posterior = normal_regression_posterior(srng, w, tau_beta, X, z)
 
-    if beta.name:
-        beta_posterior.name = f"{beta.name}_posterior"
-
     return beta_posterior
+
+
+class BernoulliRegressionGibbsKernel(SamplingStep):
+    """An `Op` that represents the update of the regression parameter of
+    a Bernoulli regression.
+
+    """
+
+    default_output = 0
 
 
 @sampler_finder([BernoulliRV])
@@ -691,13 +760,21 @@ def bern_logistic_finder(fgraph, node, srng):
     except ValueError:  # pragma: no cover
         return None
 
-    beta_posterior = bern_normal_posterior(srng, beta_rv, beta_rv.owner.inputs[4], X, y)
+    beta_std = beta_rv.owner.inputs[4]
+    beta_posterior = bern_normal_posterior(srng, beta_rv, beta_std, X, y)
+
+    # Build the `Op` corresponding to the sampling step
+    outputs = [beta_posterior]
+    inputs = remove_constants([beta_rv, beta_std, X, y])
+    gibbs = BernoulliRegressionGibbsKernel(inputs, outputs)
+
+    beta_posterior: TensorVariable = gibbs(*inputs)  # type: ignore
+    beta_posterior.name = f"{beta_rv.name or 'beta'}_posterior"  # type: ignore
 
     return [(beta_rv, beta_posterior, None)]
 
 
 gibbs_db.register("bern_logistic_finder", bern_logistic_finder, "basic")
-
 
 sampler_finder_db.register(
     "gibbs_db", in2out(gibbs_db.query("+basic"), name="gibbs"), "basic"

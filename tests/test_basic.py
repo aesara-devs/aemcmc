@@ -3,12 +3,16 @@ import aesara.tensor as at
 import numpy as np
 import pytest
 from aesara.graph.basic import graph_inputs, io_toposort
-from aesara.ifelse import IfElse
 from aesara.tensor.random import RandomStream
 from aesara.tensor.random.basic import BetaRV, GammaRV
 from scipy.linalg import toeplitz
 
 from aemcmc.basic import construct_sampler
+from aemcmc.gibbs import (
+    DispersionGibbsKernel,
+    HorseshoeGibbsKernel,
+    NBRegressionGibbsKernel,
+)
 from aemcmc.rewriting import SubsumingElemwise
 
 
@@ -156,15 +160,16 @@ def test_create_gibbs():
 
     tau_post_step = sample_steps[tau_rv]
     # These are *very* rough checks of the resulting graphs
-    assert tau_post_step.owner.op == at.reciprocal
+    assert isinstance(tau_post_step.owner.op, HorseshoeGibbsKernel)
 
     lmbda_post_step = sample_steps[lmbda_rv]
-    assert lmbda_post_step.owner.op == at.reciprocal
+    assert isinstance(lmbda_post_step.owner.op, HorseshoeGibbsKernel)
 
     beta_post_step = sample_steps[beta_rv]
-    assert isinstance(beta_post_step.owner.op, IfElse)
+    assert isinstance(beta_post_step.owner.op, NBRegressionGibbsKernel)
 
-    assert y_vv in graph_inputs([beta_post_step])
+    h_post_step = sample_steps[h_rv]
+    assert isinstance(h_post_step.owner.op, DispersionGibbsKernel)
 
     inputs = [X, a, b, y_vv] + [initial_values[rv] for rv in sample_vars]
     outputs = [sample_steps[rv] for rv in sample_vars]
@@ -203,6 +208,7 @@ def test_create_gibbs():
         h_val,
     )
     for i in range(100):
+        print(h_pst_val)
         tau_pst_val, lmbda_pst_val, beta_pst_val, h_pst_val = sample_step(
             X_val,
             a_val,
