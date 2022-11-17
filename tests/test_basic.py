@@ -115,6 +115,7 @@ def test_nuts_with_closed_form():
     )
 
     p_posterior_step = sample_steps[l_rv]
+    assert y_vv in graph_inputs([p_posterior_step])
     assert len(parameters) == 2
     assert len(initial_values) == 2
     assert isinstance(p_posterior_step.owner.op, GammaRV)

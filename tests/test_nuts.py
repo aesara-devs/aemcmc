@@ -11,16 +11,14 @@ def test_nuts():
     Y_rv = srng.normal(mu_rv, sigma_rv, name="Y")
 
     mu_vv = mu_rv.clone()
-    mu_vv.name = "mu_vv"
     sigma_vv = sigma_rv.clone()
-    sigma_vv.name = "sigma_vv"
     y_vv = Y_rv.clone()
 
-    to_sample_rvs = [mu_rv, sigma_rv]
-    rvs_to_values = {mu_rv: mu_vv, sigma_rv: sigma_vv, Y_rv: y_vv}
+    to_sample_rvs = {mu_rv: mu_vv, sigma_rv: sigma_vv}
+    observed = {Y_rv: y_vv}
 
-    state_at, step_fn, parameters = construct_nuts_sampler(
-        srng, to_sample_rvs, rvs_to_values
+    state_at, updates, parameters = construct_nuts_sampler(
+        srng, to_sample_rvs, observed
     )
 
     # Make sure that the state is properly initialized
@@ -34,6 +32,7 @@ def test_nuts():
             parameters["inverse_mass_matrix"],
         ),
         sample_steps,
+        updates=updates,
     )
     new_state = state_fn(1.0, 1.0, 1.0, 0.01, [1.0, 1.0])
 

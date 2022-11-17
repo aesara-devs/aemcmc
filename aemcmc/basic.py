@@ -106,19 +106,21 @@ def construct_sampler(
             updates = dict(zip(update_keys, update_values))
             posterior_updates.update(updates)
 
-    # We use the NUTS sampler for the remaining variables
-    # TODO: NUTS cannot handle RV with discrete supports
-    # TODO: Track the transformations made by NUTS? It would make more sense to
-    # apply the transforms on the probabilistic graph, in which case we would
-    # only need to return the transformed graph.
+    # Use the NUTS sampler for the remaining variables
     if rvs_without_samplers:
-        # We condition on the updated values of the other rvs
-        rvs_to_values = {rv: rvs_to_init_vals[rv] for rv in rvs_without_samplers}
-        rvs_to_values.update(posterior_sample_steps)
 
-        nuts_sample_steps, updates, nuts_parameters = construct_nuts_sampler(
-            srng, rvs_without_samplers, rvs_to_values
+        to_sample_rvs = {
+            rv: posterior_sample_steps[rv] for rv in list(rvs_without_samplers)
+        }
+        realized_values = {
+            rv: vv
+            for rv, vv in posterior_sample_steps.items()
+            if rv not in to_sample_rvs
+        }
+        (nuts_sample_steps, updates, nuts_parameters) = construct_nuts_sampler(
+            srng, to_sample_rvs, realized_values
         )
+
         posterior_sample_steps.update(nuts_sample_steps)
         posterior_updates.update(updates)
         parameters.update(nuts_parameters)

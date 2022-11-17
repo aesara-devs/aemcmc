@@ -31,72 +31,82 @@ NUTSKernelType = Callable[
 
 def construct_nuts_sampler(
     srng: RandomStream,
-    to_sample_rvs,  # RVs to sample
-    rvs_to_values,  # All RVs to values
-) -> Tuple[Dict[RandomVariable, TensorVariable], Dict, Dict[str, TensorVariable]]:
-    """Build a NUTS kernel and the initial state.
+    to_sample_rvs: Dict[RandomVariable, TensorVariable],
+    realized_rvs_to_values: Dict[RandomVariable, TensorVariable],
+) -> Tuple[Dict[RandomVariable, TensorVariable], Dict, Dict[str, TensorVariable],]:
+    """Build a NUTS sampling step and its initial state.
 
-    This function currently assumes that we will update the value of all of the
-    model's variables with the NUTS sampler.
+    This sampling step works with variables in their original space, to create
+    the sampling step we thus need to:
+
+    1. Create the initial value for the variables to sample;
+    2. Create a log-density graph that works in the transformed space, and
+       build a NUTS kernel that uses this graph;
+    3. Apply the default transformations to the initial values;
+    4. Apply the NUTS kernel to the transformed initial values;
+    5. Apply the backward transformation to the updated values.
 
     Parameters
     ----------
     rvs_to_samples
-        A sequence that contains the random variables whose posterior
-        distribution we wish to sample from.
-    rvs_to_values
-        A dictionary that maps all random variables in the model (including
-        those not sampled with NUTS) to their value variable.
+        A dictionary that maps the random variables whose posterior
+        distribution we wish to sample from to their initial values.
+    realized_rvs_to_values
+        A dictionary that maps the random variables not sampled by NUTS to their
+        realized value. These variables can either correpond to observations, or
+        to variables whose value is set by a different sampler.
 
     Returns
     -------
-    A NUTS sampling step for each variable.
+    A NUTS sampling step for each random variable, their initial values, the
+    shared variable updates and the NUTS parameters.
 
     """
 
-    # Algorithms in the HMC family can more easily explore the posterior distribution
-    # when the support of each random variable's distribution is unconstrained.
-    # First we build the logprob graph in the transformed space.
-    transforms = {
-        vv: get_transform(rv) for rv, vv in rvs_to_values.items() if rv in to_sample_rvs
-    }
+    # Create the initial values for the random variables that are assigned this
+    # sampling step.
+    initial_values = to_sample_rvs.values()
 
-    logprob_sum = joint_logprob(
-        rvs_to_values, extra_rewrites=TransformValuesRewrite(transforms)
+    # Algorithms in the HMC family can more easily explore the posterior distribution
+    # when the support of each random variable's distribution is unconstrained. Get
+    # the default transform that corresponds to each random variable.
+    transforms = {rv: get_transform(rv) for rv in to_sample_rvs}
+    transformed_values = [
+        transform_forward(rv, vv, transforms[rv])
+        for rv, vv in zip(to_sample_rvs, initial_values)
+    ]
+
+    # Build the graph for the joint log-density of the model, setting the value
+    # of the realized variables. The placeholder nodes are defined in the
+    # transformed space and will be replaced by their actual value when building
+    # the NUTS kernel.
+    logprob, placeholder_values = joint_logprob(
+        *to_sample_rvs.keys(),
+        realized=realized_rvs_to_values,
+        extra_rewrites=TransformValuesRewrite(transforms),
     )
 
-    # Then we transform the value variables.
-    transformed_vvs = {
-        vv: transform_forward(rv, vv, transforms[vv])
-        for rv, vv in rvs_to_values.items()
-        if rv in to_sample_rvs
-    }
+    # Algorithms in `AeHMC` work with flat arrays so we need to ravel parameter
+    # values to use them as an input to the NUTS kernel. The following creates
+    # an object that can ravel the `transformed_values` and can unravel
+    # flattened values in a dictionary that maps placeholder values to the
+    # unraveled values.
+    rp_map = RaveledParamsMap(transformed_values)
+    rp_map.ref_params = placeholder_values
 
-    # Algorithms in `aehmc` work with flat arrays and we need to ravel parameter
-    # values to use them as an input to the NUTS kernel.
-    rp_map = RaveledParamsMap(tuple(transformed_vvs.values()))
-    rp_map.ref_params = tuple(transformed_vvs.keys())
-
-    # Make shared variables for all the non-NUTS sampled terms
-    non_nuts_vals = {
-        vv: vv for rv, vv in rvs_to_values.items() if rv not in to_sample_rvs
-    }
-
-    # We can now write the logprob function associated with the model and build
-    # the NUTS kernel.
+    # Within the NUTS kernel we unravel the flat position and replace the
+    # placeholder values by their current value in the logprob graph.
     def logprob_fn(q):
         unraveled_q = rp_map.unravel_params(q)
-        unraveled_q.update(non_nuts_vals)
         memo = aesara.graph.basic.clone_get_equiv(
-            [], [logprob_sum], copy_inputs=False, copy_orphans=False, memo=unraveled_q
+            [], [logprob], copy_inputs=False, copy_orphans=False, memo=unraveled_q
         )
+        return memo[logprob]
 
-        return memo[logprob_sum]
-
-    # Finally we build the NUTS sampling step
+    # Build the NUTS kernel and initialize the state
     nuts_kernel = aehmc_nuts.new_kernel(srng, logprob_fn)
 
-    initial_q = rp_map.ravel_params(tuple(transformed_vvs.values()))
+    initial_q = rp_map.ravel_params(transformed_values)
     initial_state = aehmc_nuts.new_state(initial_q, logprob_fn)
 
     # Initialize the parameter values
@@ -105,17 +115,17 @@ def construct_nuts_sampler(
         name="inverse_mass_matrix", shape=initial_q.type.shape, dtype=config.floatX
     )
 
-    # TODO: Does that lead to wasteful computation? Or is it handled by Aesara?
+    # Apply the NUTS kernel to the initial state, unravel and transform the updated
+    # values back to the original space.
     (new_q, *_), updates = nuts_kernel(*initial_state, step_size, inverse_mass_matrix)
     transformed_params = rp_map.unravel_params(new_q)
-    params = {
-        rv: transform_backward(rv, transformed_params[vv], transforms[vv])
-        for rv, vv in rvs_to_values.items()
-        if rv in to_sample_rvs
+    results = {
+        rv: transform_backward(rv, transformed_params[pv], transforms[rv])
+        for rv, pv in zip(to_sample_rvs, placeholder_values)
     }
 
     return (
-        params,
+        results,
         updates,
         {"step_size": step_size, "inverse_mass_matrix": inverse_mass_matrix},
     )
