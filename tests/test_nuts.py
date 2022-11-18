@@ -1,7 +1,7 @@
 import aesara
 from aesara.tensor.random import RandomStream
 
-from aemcmc.nuts import construct_nuts_sampler
+import aemcmc.nuts as nuts
 
 
 def test_nuts():
@@ -17,7 +17,7 @@ def test_nuts():
     to_sample_rvs = {mu_rv: mu_vv, sigma_rv: sigma_vv}
     observed = {Y_rv: y_vv}
 
-    state_at, updates, parameters = construct_nuts_sampler(
+    state_at, updates, parameters = nuts.construct_sampler(
         srng, to_sample_rvs, observed
     )
 

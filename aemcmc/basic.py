@@ -5,7 +5,7 @@ from aesara.graph.fg import FunctionGraph
 from aesara.tensor.random.utils import RandomStream
 from aesara.tensor.var import TensorVariable
 
-from aemcmc.nuts import construct_nuts_sampler
+import aemcmc.nuts as nuts
 from aemcmc.rewriting import (
     SamplerTracker,
     construct_ir_fgraph,
@@ -117,7 +117,7 @@ def construct_sampler(
             for rv, vv in posterior_sample_steps.items()
             if rv not in to_sample_rvs
         }
-        (nuts_sample_steps, updates, nuts_parameters) = construct_nuts_sampler(
+        (nuts_sample_steps, updates, nuts_parameters) = nuts.construct_sampler(
             srng, to_sample_rvs, realized_values
         )
 
