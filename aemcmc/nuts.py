@@ -29,7 +29,7 @@ NUTSKernelType = Callable[
 ]
 
 
-def construct_nuts_sampler(
+def construct_sampler(
     srng: RandomStream,
     to_sample_rvs: Dict[RandomVariable, TensorVariable],
     realized_rvs_to_values: Dict[RandomVariable, TensorVariable],
