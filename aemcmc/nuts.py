@@ -11,9 +11,14 @@ from aeppl.transforms import (
     _default_transformed_rv,
 )
 from aesara import config
+from aesara.compile.sharedvalue import SharedVariable
+from aesara.graph.basic import graph_inputs
+from aesara.graph.type import Constant
 from aesara.tensor.random import RandomStream
 from aesara.tensor.random.op import RandomVariable
 from aesara.tensor.var import TensorVariable
+
+from aemcmc.types import SamplingStep
 
 NUTSStateType = Tuple[TensorVariable, TensorVariable, TensorVariable]
 NUTSKernelType = Callable[
@@ -29,7 +34,14 @@ NUTSKernelType = Callable[
 ]
 
 
-def construct_sampler(
+class NUTSKernel(SamplingStep):
+    """An `Op` that represents the update of one or many random variables
+    with the NUTS sampling algorithm.
+
+    """
+
+
+def step(
     srng: RandomStream,
     to_sample_rvs: Dict[RandomVariable, TensorVariable],
     realized_rvs_to_values: Dict[RandomVariable, TensorVariable],
@@ -63,7 +75,7 @@ def construct_sampler(
 
     """
 
-    # Create the initial values for the random variables that are assigned this
+    # Get the initial values for the random variables that are assigned this
     # sampling step.
     initial_values = to_sample_rvs.values()
 
@@ -129,6 +141,36 @@ def construct_sampler(
         updates,
         {"step_size": step_size, "inverse_mass_matrix": inverse_mass_matrix},
     )
+
+
+def construct_sampler(
+    srng: RandomStream,
+    to_sample_rvs: Dict[RandomVariable, TensorVariable],
+    realized_rvs_to_values: Dict[RandomVariable, TensorVariable],
+) -> Tuple[Dict[RandomVariable, TensorVariable], Dict, Dict[str, TensorVariable],]:
+
+    results, updates, parameters = step(srng, to_sample_rvs, realized_rvs_to_values)
+
+    # Build an `Op` that represents the NUTS sampling step
+    update_outputs = list(updates.values())
+    outputs = list(results.values()) + update_outputs
+    inputs = [
+        var_in
+        for var_in in graph_inputs(outputs)
+        if not isinstance(var_in, Constant) and not isinstance(var_in, SharedVariable)
+    ]
+    nuts_op = NUTSKernel(inputs, outputs)
+
+    posterior = nuts_op(*inputs)
+    results = {rv: posterior[i] for i, rv in enumerate(to_sample_rvs)}
+
+    updates_input = posterior[0].owner.inputs[len(inputs) :]
+    updates_output = posterior[len(results) :]
+    updates = {
+        updates_input[i]: update_out for i, update_out in enumerate(updates_output)
+    }
+
+    return results, updates, {nuts_op: parameters}
 
 
 def get_transform(rv: TensorVariable):
