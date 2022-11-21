@@ -17,19 +17,19 @@ def test_nuts():
     to_sample_rvs = {mu_rv: mu_vv, sigma_rv: sigma_vv}
     observed = {Y_rv: y_vv}
 
-    state_at, updates, parameters = nuts.construct_sampler(
+    sampling_step, updates, (step_size, inverse_mass_matrix) = nuts.step(
         srng, to_sample_rvs, observed
     )
 
     # Make sure that the state is properly initialized
-    sample_steps = [state_at[rv] for rv in to_sample_rvs]
+    sample_steps = [sampling_step[rv] for rv in to_sample_rvs]
     state_fn = aesara.function(
         (
             mu_vv,
             sigma_vv,
             y_vv,
-            parameters["step_size"],
-            parameters["inverse_mass_matrix"],
+            step_size,
+            inverse_mass_matrix,
         ),
         sample_steps,
         updates=updates,
