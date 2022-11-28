@@ -12,7 +12,7 @@ from aeppl.transforms import (
 )
 from aesara import config
 from aesara.compile.sharedvalue import SharedVariable
-from aesara.graph.basic import graph_inputs
+from aesara.graph.basic import Apply, graph_inputs
 from aesara.graph.type import Constant
 from aesara.tensor.random import RandomStream
 from aesara.tensor.random.op import RandomVariable
@@ -45,7 +45,9 @@ def step(
     srng: RandomStream,
     to_sample_rvs: Dict[RandomVariable, TensorVariable],
     realized_rvs_to_values: Dict[RandomVariable, TensorVariable],
-) -> Tuple[Dict[RandomVariable, TensorVariable], Dict, Dict[str, TensorVariable],]:
+) -> Tuple[
+    Dict[RandomVariable, TensorVariable], Dict, Tuple[TensorVariable, TensorVariable]
+]:
     """Build a NUTS sampling step and its initial state.
 
     This sampling step works with variables in their original space, to create
@@ -139,7 +141,7 @@ def step(
     return (
         results,
         updates,
-        {"step_size": step_size, "inverse_mass_matrix": inverse_mass_matrix},
+        (step_size, inverse_mass_matrix),
     )
 
 
@@ -147,7 +149,7 @@ def construct_sampler(
     srng: RandomStream,
     to_sample_rvs: Dict[RandomVariable, TensorVariable],
     realized_rvs_to_values: Dict[RandomVariable, TensorVariable],
-) -> Tuple[Dict[RandomVariable, TensorVariable], Dict, Dict[str, TensorVariable],]:
+) -> Tuple[Dict[RandomVariable, TensorVariable], Dict, Dict[Apply, TensorVariable]]:
 
     results, updates, parameters = step(srng, to_sample_rvs, realized_rvs_to_values)
 

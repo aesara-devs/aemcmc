@@ -1,6 +1,6 @@
 from typing import Dict, Tuple
 
-from aesara.graph.basic import Variable
+from aesara.graph.basic import Apply, Variable
 from aesara.graph.fg import FunctionGraph
 from aesara.tensor.random.utils import RandomStream
 from aesara.tensor.var import TensorVariable
@@ -12,16 +12,12 @@ from aemcmc.rewriting import (
     expand_subsumptions,
     sampler_rewrites_db,
 )
+from aemcmc.types import Sampler
 
 
 def construct_sampler(
     obs_rvs_to_values: Dict[TensorVariable, TensorVariable], srng: RandomStream
-) -> Tuple[
-    Dict[TensorVariable, TensorVariable],
-    Dict[Variable, Variable],
-    Dict[TensorVariable, TensorVariable],
-    Dict[str, TensorVariable],
-]:
+) -> Tuple[Sampler, Dict[TensorVariable, TensorVariable]]:
     r"""Eagerly construct a sampler for a given set of observed variables and their observations.
 
     Parameters
@@ -57,7 +53,7 @@ def construct_sampler(
     # TODO FIXME: Get/extract `Scan`-generated updates
     posterior_updates: Dict[Variable, Variable] = {}
 
-    parameters: Dict[str, TensorVariable] = {}
+    parameters: Dict[Apply, Tuple[TensorVariable]] = {}
     rvs_without_samplers = set()
 
     for rv in fgraph.outputs:
@@ -125,13 +121,12 @@ def construct_sampler(
         posterior_updates.update(updates)
         parameters.update(nuts_parameters)
 
-    return (
-        {
-            new_to_old_rvs[rv]: step
-            for rv, step in posterior_sample_steps.items()
-            if rv not in obs_rvs_to_values
-        },
-        posterior_updates,
-        {new_to_old_rvs[rv]: init_var for rv, init_var in rvs_to_init_vals.items()},
-        parameters,
-    )
+    sampling_steps = {
+        new_to_old_rvs[rv]: step
+        for rv, step in posterior_sample_steps.items()
+        if rv not in obs_rvs_to_values
+    }
+
+    return Sampler(sampling_steps, updates, parameters), {
+        new_to_old_rvs[rv]: init_var for rv, init_var in rvs_to_init_vals.items()
+    }

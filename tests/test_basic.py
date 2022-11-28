@@ -29,12 +29,11 @@ def test_closed_form_posterior_beta_binomial():
     y_vv = Y_rv.clone()
     y_vv.name = "y"
 
-    sample_steps, updates, initial_values, parameters = construct_sampler(
-        {Y_rv: y_vv}, srng
-    )
+    sampler, initial_values = construct_sampler({Y_rv: y_vv}, srng)
 
-    p_posterior_step = sample_steps[p_rv]
-    assert len(parameters) == 0
+    p_posterior_step = sampler.sample_steps[p_rv]
+    assert len(sampler.parameters) == 0
+    assert len(sampler.stages) == 1
     assert isinstance(p_posterior_step.owner.op, BetaRV)
 
 
@@ -50,12 +49,11 @@ def test_closed_form_posterior_gamma_poisson():
     y_vv = Y_rv.clone()
     y_vv.name = "y"
 
-    sample_steps, updates, initial_values, parameters = construct_sampler(
-        {Y_rv: y_vv}, srng
-    )
+    sampler, initial_values = construct_sampler({Y_rv: y_vv}, srng)
 
-    p_posterior_step = sample_steps[l_rv]
-    assert len(parameters) == 0
+    p_posterior_step = sampler.sample_steps[l_rv]
+    assert len(sampler.parameters) == 0
+    assert len(sampler.stages) == 1
     assert isinstance(p_posterior_step.owner.op, GammaRV)
 
 
@@ -73,21 +71,20 @@ def test_nuts_sampler_single_variable(size):
     y_vv = Y_rv.clone()
     y_vv.name = "y"
 
-    sample_steps, updates, initial_values, parameters = construct_sampler(
-        {Y_rv: y_vv}, srng
-    )
+    sampler, initial_values = construct_sampler({Y_rv: y_vv}, srng)
+    assert len(sampler.sample_steps) == 1
+    assert len(sampler.stages) == 1
 
-    assert len(parameters) == 2
-    assert len(sample_steps) == 1
-
-    tau_post_step = sample_steps[tau_rv]
+    tau_post_step = sampler.sample_steps[tau_rv]
+    nuts = tau_post_step.owner.op
     assert y_vv in graph_inputs([tau_post_step])
+    assert len(sampler.parameters[nuts]) == 2
 
     inputs = [
         initial_values[tau_rv],
         y_vv,
-        parameters["step_size"],
-        parameters["inverse_mass_matrix"],
+        sampler.parameters[nuts][0],
+        sampler.parameters[nuts][1],
     ]
     output = tau_post_step
     sample_step = aesara.function(inputs, output)
@@ -114,17 +111,16 @@ def test_nuts_with_closed_form():
     y_vv = Y_rv.clone()
     y_vv.name = "y"
 
-    sample_steps, updates, initial_values, parameters = construct_sampler(
-        {Y_rv: y_vv}, srng
-    )
+    sampler, initial_values = construct_sampler({Y_rv: y_vv}, srng)
 
-    p_posterior_step = sample_steps[l_rv]
+    assert len(sampler.stages) == 2
+
+    p_posterior_step = sampler.sample_steps[l_rv]
     assert y_vv in graph_inputs([p_posterior_step])
-    assert len(parameters) == 2
     assert len(initial_values) == 2
     assert isinstance(p_posterior_step.owner.op, GammaRV)
 
-    assert beta_rv in sample_steps
+    assert beta_rv in sampler.sample_steps
 
 
 def test_create_gibbs():
@@ -151,28 +147,27 @@ def test_create_gibbs():
 
     sample_vars = [tau_rv, lmbda_rv, beta_rv, h_rv]
 
-    sample_steps, updates, initial_values, parameters = construct_sampler(
-        {Y_rv: y_vv}, srng
-    )
+    sampler, initial_values = construct_sampler({Y_rv: y_vv}, srng)
 
-    assert len(sample_steps) == 4
-    assert updates
+    assert len(sampler.sample_steps) == 4
+    assert len(sampler.stages) == 3
+    assert sampler.updates
 
-    tau_post_step = sample_steps[tau_rv]
+    tau_post_step = sampler.sample_steps[tau_rv]
     # These are *very* rough checks of the resulting graphs
     assert isinstance(tau_post_step.owner.op, HorseshoeGibbsKernel)
 
-    lmbda_post_step = sample_steps[lmbda_rv]
+    lmbda_post_step = sampler.sample_steps[lmbda_rv]
     assert isinstance(lmbda_post_step.owner.op, HorseshoeGibbsKernel)
 
-    beta_post_step = sample_steps[beta_rv]
+    beta_post_step = sampler.sample_steps[beta_rv]
     assert isinstance(beta_post_step.owner.op, NBRegressionGibbsKernel)
 
-    h_post_step = sample_steps[h_rv]
+    h_post_step = sampler.sample_steps[h_rv]
     assert isinstance(h_post_step.owner.op, DispersionGibbsKernel)
 
     inputs = [X, a, b, y_vv] + [initial_values[rv] for rv in sample_vars]
-    outputs = [sample_steps[rv] for rv in sample_vars]
+    outputs = [sampler.sample_steps[rv] for rv in sample_vars]
 
     subsuming_elemwises = [
         n for n in io_toposort([], outputs) if isinstance(n.op, SubsumingElemwise)
@@ -182,7 +177,7 @@ def test_create_gibbs():
     sample_step = aesara.function(
         inputs,
         outputs,
-        updates=updates,
+        updates=sampler.updates,
         on_unused_input="ignore",
     )
 
@@ -208,7 +203,6 @@ def test_create_gibbs():
         h_val,
     )
     for i in range(100):
-        print(h_pst_val)
         tau_pst_val, lmbda_pst_val, beta_pst_val, h_pst_val = sample_step(
             X_val,
             a_val,
