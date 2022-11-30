@@ -37,11 +37,9 @@ Beta-Binomial model amounts to sampling from a Beta distribution:
     y_vv = Y_rv.clone()
     y_vv.name = "y"
 
-    sample_steps, _, initial_values, _ = aemcmc.construct_sampler(
-        {Y_rv: y_vv}, srng
-    )
+    sampler, initial_values = aemcmc.construct_sampler({Y_rv: y_vv}, srng)
 
-    p_posterior_step = sample_steps[p_rv]
+    p_posterior_step = sampler.sample_steps[p_rv]
     aesara.dprint(p_posterior_step)
     # beta_rv{0, (0, 0), floatX, False}.1 [id A]
     #  |RandomGeneratorSharedVariable(<Generator(PCG64) at 0x7F77B2831200>) [id B]
@@ -65,6 +63,7 @@ would:
 .. code-block:: python
 
     import aemcmc
+    import aesara
     import aesara.tensor as at
 
     srng = at.random.RandomStream(0)
@@ -88,11 +87,21 @@ would:
     y_vv = Y_rv.clone()
     y_vv.name = "y"
 
-    sample_steps, updates, initial_values, parameters = aemcmc.construct_sampler(
-        {Y_rv: y_vv}, srng
-    )
-    print(sample_steps.keys())
-    # dict_keys([tau, lambda, beta, h])
+    sampler, initial_values = aemcmc.construct_sampler({Y_rv: y_vv}, srng)
+
+    # `sampler.sample_steps` contains the sample step for each random variable
+    print(sampler.sample_steps[h_rv])
+    # h_posterior
+
+    # `sampler.stages` contains the sampling kernels sorted by scan order
+    print(sampler.stages)
+    # {HorseshoeGibbsKernel: [tau, lambda], NBRegressionGibbsKernel: [beta], DispersionGibbsKernel: [h]}
+
+    # Build a function that returns new samples
+    to_sample_rvs = [tau_rv, lmbda_rv, beta_rv, h_rv]
+    inputs = [a, b, X, y_vv] + [initial_values[rv] for rv in to_sample_rvs]
+    outputs = [sampler.sample_steps[rv] for rv in to_sample_rvs]
+    sample_fn = aesara.function(inputs, outputs, updates=sampler.updates)
 
 
 In case no specialized sampler is found, AeMCMC assigns the NUTS sampler to the
@@ -102,6 +111,7 @@ sampling if needed:
 .. code-block:: python
 
     import aemcmc
+    import aesara
     import aesara.tensor as at
 
     srng = at.random.RandomStream(0)
@@ -111,13 +121,26 @@ sampling if needed:
 
     y_vv = Y_rv.clone()
 
-    sample_steps, updates, initial_values, parameters = aemcmc.construct_sampler(
-        {Y_rv: y_vv}, srng
-    )
-    print(sample_steps.keys())
+    sampler, initial_values = aemcmc.construct_sampler({Y_rv: y_vv}, srng)
+
+    print(sampler.sample_steps.keys())
     # dict_keys([sigma, mu])
-    print(parameters.keys())
-    # dict_keys(['step_size', 'inverse_mass_matrix'])
+    print(sampler.stages)
+    # {NUTSKernel: [sigma, mu]}
+    print(sampler.parameters)
+    # {NUTSKernel: (step_size, inverse_mass_matrix)}
+
+    # Build a function that returns new samples
+    step_size, inverse_mass_matrix = list(sampler.parameters.values())[0]
+    inputs = [
+        initial_values[mu_rv],
+        initial_values[sigma_rv],
+        y_vv,
+        step_size,
+        inverse_mass_matrix
+    ]
+    outputs = [sampler.sample_steps[mu_rv], sampler.sample_steps[sigma_rv]]
+    sample_fn = aesara.function(inputs, outputs, updates=sampler.updates)
 
 
 Installation
