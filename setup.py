@@ -32,8 +32,8 @@ setup(
     cmdclass=versioneer.get_cmdclass(),
     description="Miscellaneous MCMC samplers written in Aesara",
     url="http://github.com/aesara-devs/aemcmc",
-    maintainer="Brandon T. Willard",
-    maintainer_email="aesara-devs@gmail.com",
+    author="aesara-devs",
+    author_email="aesara.devs@gmail.com",
     packages=["aemcmc"],
     install_requires=[
         "numpy>=1.18.1",
