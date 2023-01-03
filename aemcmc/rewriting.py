@@ -2,7 +2,7 @@ from collections.abc import Mapping
 from functools import wraps
 from typing import Callable, Dict, Iterable, List, Optional, Sequence, Set, Tuple, Union
 
-from aeppl.rewriting import PreserveRVMappings
+from aeppl.rewriting import MeasurableConversionTracker
 from aesara.compile.builders import OpFromGraph
 from aesara.compile.mode import optdb
 from aesara.graph.basic import Apply, Variable, clone_replace, io_toposort
@@ -84,7 +84,7 @@ def construct_ir_fgraph(
         memo=memo,
         copy_orphans=False,
         copy_inputs=False,
-        features=[ShapeFeature(), PreserveRVMappings(obs_rvs_to_values)],
+        features=[ShapeFeature(), MeasurableConversionTracker()],
     )
 
     # Update `obs_rvs_to_values` so that it uses the new cloned variables
