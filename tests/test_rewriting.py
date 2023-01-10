@@ -6,7 +6,11 @@ from cons import car, cdr
 from etuples import etuple, etuplize
 from unification import unify
 
-from aemcmc.rewriting import SubsumingElemwise, local_elemwise_dimshuffle_subsume
+from aemcmc.rewriting import (
+    SubsumingElemwise,
+    construct_ir_fgraph,
+    local_elemwise_dimshuffle_subsume,
+)
 
 
 def test_SubsumingElemwise_basics():
@@ -107,3 +111,25 @@ def test_local_elemwise_dimshuffle_subsume_transpose():
     # The input corresponding to `b`/`b_ds` should be equivalent to `b.T`
     assert isinstance(res.owner.inputs[1].owner.op, DimShuffle)
     assert equal_computations([b.T], [res.owner.inputs[1]])
+
+
+def test_SubsumingElemwise_constant_inputs():
+    """Make sure constant inputs are handled correctly by `SubsumingElemwise`."""
+
+    srng = at.random.RandomStream(0)
+
+    s = at.lscalar("s")
+    # The `1` is the constant input to a `true_div` `Elemwise` that should be
+    # "subsumed"
+    Z = srng.exponential(1, size=s, name="Z")
+    mu = 1 / Z
+    Y = srng.normal(mu, name="Y")
+    y = Y.clone()
+    y.name = "y"
+
+    res, *_ = construct_ir_fgraph({Y: y}, clone=False)
+
+    normal_node = res.outputs[1].owner
+    subelem_node = normal_node.inputs[3].owner
+    assert isinstance(subelem_node.op, SubsumingElemwise)
+    assert subelem_node.inputs == [Z]
