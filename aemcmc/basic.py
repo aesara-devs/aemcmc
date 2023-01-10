@@ -127,6 +127,6 @@ def construct_sampler(
         if rv not in obs_rvs_to_values
     }
 
-    return Sampler(sampling_steps, updates, parameters), {
+    return Sampler(sampling_steps, posterior_updates, parameters), {
         new_to_old_rvs[rv]: init_var for rv, init_var in rvs_to_init_vals.items()
     }

@@ -5,7 +5,7 @@ from typing import Callable, Dict, Iterable, List, Optional, Sequence, Set, Tupl
 from aeppl.rewriting import MeasurableConversionTracker
 from aesara.compile.builders import OpFromGraph
 from aesara.compile.mode import optdb
-from aesara.graph.basic import Apply, Variable, clone_replace, io_toposort
+from aesara.graph.basic import Apply, Constant, Variable, clone_replace, io_toposort
 from aesara.graph.features import AlreadyThere, Feature
 from aesara.graph.fg import FunctionGraph
 from aesara.graph.op import Op
@@ -50,7 +50,7 @@ sampler_rewrites_db.register(
 
 
 def construct_ir_fgraph(
-    obs_rvs_to_values: Dict[Variable, Variable]
+    obs_rvs_to_values: Dict[Variable, Variable], clone=True
 ) -> Tuple[
     FunctionGraph,
     Dict[Variable, Variable],
@@ -80,7 +80,7 @@ def construct_ir_fgraph(
 
     fgraph = FunctionGraph(
         outputs=rv_outputs,
-        clone=True,
+        clone=clone,
         memo=memo,
         copy_orphans=False,
         copy_inputs=False,
@@ -88,7 +88,7 @@ def construct_ir_fgraph(
     )
 
     # Update `obs_rvs_to_values` so that it uses the new cloned variables
-    obs_rvs_to_values = {memo[k]: v for k, v in obs_rvs_to_values.items()}
+    obs_rvs_to_values = {memo.get(k, k): v for k, v in obs_rvs_to_values.items()}
 
     sampler_ir_db.query("+basic").rewrite(fgraph)
 
@@ -186,10 +186,28 @@ class SubsumingElemwise(OpFromGraph, Elemwise):
         # self.destroy_map = self.elemwise_op.destroy_map
         self.ufunc = None
         self.nfunc = None
-        OpFromGraph.__init__(self, inputs, outputs, *args, **kwargs)
+
+        used_inputs = [inp for inp in inputs if not isinstance(inp, Constant)]
+
+        OpFromGraph.__init__(self, used_inputs, outputs, *args, **kwargs)
 
     def make_node(self, *inputs):
-        node = super().make_node(*inputs)
+        # Remove constants
+        used_inputs = [inp for inp in inputs if not isinstance(inp, Constant)]
+
+        # TODO: We could make sure that the new constant inputs correspond to
+        # the originals...
+
+        # The user interface doesn't expect the shared variable inputs of the
+        # inner-graph, but, since `Op.make_node` does (and `Op.__call__`
+        # dispatches to `Op.make_node`), we need to compensate here
+        num_expected_inps = len(self.inner_inputs) - len(self.shared_inputs)
+
+        if len(used_inputs) == num_expected_inps:
+            used_inputs = used_inputs + self.shared_inputs
+
+        node = super().make_node(*used_inputs)
+
         # Remove shared variable inputs.  We aren't going to compute anything
         # with this `Op`, so they're not needed
         real_inputs = node.inputs[: len(node.inputs) - len(self.shared_inputs)]
@@ -345,8 +363,6 @@ def local_elemwise_dimshuffle_subsume(fgraph, node):
     new_op = SubsumingElemwise(new_inputs, new_outputs, inline=True)
 
     new_out = new_op(*new_inputs)
-
-    assert len(new_out.owner.inputs) == len(node.inputs)
 
     return new_out.owner.outputs
 
