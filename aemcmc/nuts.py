@@ -150,7 +150,6 @@ def construct_sampler(
     to_sample_rvs: Dict[RandomVariable, TensorVariable],
     realized_rvs_to_values: Dict[RandomVariable, TensorVariable],
 ) -> Tuple[Dict[RandomVariable, TensorVariable], Dict, Dict[Apply, TensorVariable]]:
-
     results, updates, parameters = step(srng, to_sample_rvs, realized_rvs_to_values)
 
     # Build an `Op` that represents the NUTS sampling step

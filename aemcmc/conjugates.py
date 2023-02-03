@@ -65,7 +65,6 @@ def gamma_poisson_conjugateo(observed_val, observed_rv_expr, posterior_expr):
 
 @node_rewriter([PoissonRV])
 def local_gamma_poisson_posterior(fgraph, node):
-
     sampler_mappings = getattr(fgraph, "sampler_mappings", None)
 
     rv_var = node.outputs[1]
@@ -153,7 +152,6 @@ def beta_binomial_conjugateo(observed_val, observed_rv_expr, posterior_expr):
 
 @node_rewriter([BinomialRV])
 def local_beta_binomial_posterior(fgraph, node):
-
     sampler_mappings = getattr(fgraph, "sampler_mappings", None)
 
     rv_var = node.outputs[1]

@@ -7,7 +7,6 @@ from aemcmc.transforms import invgamma_exponential, location_scale_transform
 
 
 def test_normal_scale_loc_transform_lift():
-
     srng = at.random.RandomStream(0)
     mu_rv = srng.halfnormal(1.0)
     sigma_rv = srng.halfcauchy(1)
@@ -32,7 +31,6 @@ def test_normal_scale_loc_transform_lift():
     reason="Op.__call__ does not dispatch to Op.make_node for some RandomVariable and etuple evaluation returns an error"
 )
 def test_normal_scale_loc_transform_sink():
-
     srng = at.random.RandomStream(0)
     mu_rv = srng.halfnormal(1.0)
     sigma_rv = srng.halfcauchy(1)
@@ -48,7 +46,6 @@ def test_normal_scale_loc_transform_sink():
 
 
 def test_invgamma_to_exp():
-
     srng = at.random.RandomStream(0)
     c_at = at.scalar()
     X_rv = srng.invgamma(1.0, c_at)
@@ -69,7 +66,6 @@ def test_invgamma_to_exp():
     reason="Op.__call__ does not dispatch to Op.make_node for some RandomVariable and etuple evaluation returns an error"
 )
 def test_invgamma_from_exp():
-
     srng = at.random.RandomStream(0)
     c_at = at.scalar()
     X_rv = 1.0 / srng.exponential(c_at)

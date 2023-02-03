@@ -35,7 +35,6 @@ class Sampler:
     """A list of the sampling stages sorted in scan order."""
 
     def __post_init__(self):
-
         # The scan order corresponds to the order in which the sampling
         # steps were found, and thus the order in which elements were
         # inserted in `sample_steps`.

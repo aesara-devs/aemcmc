@@ -28,7 +28,6 @@ def srng():
 
 
 def test_horseshoe_match(srng):
-
     size = at.lscalar("size")
     # Vector tau
     tau_rv = srng.halfcauchy(0, 1, size=1, name="tau")
