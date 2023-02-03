@@ -149,7 +149,6 @@ horseshoe_pattern = etuple(
 
 
 def horseshoe_match(graph: TensorVariable) -> Tuple[TensorVariable, TensorVariable]:
-
     graph_et = etuplize(graph)
 
     s = unify(graph_et, horseshoe_pattern)
@@ -332,7 +331,6 @@ gamma_pattern = etuple(etuplize(at.random.gamma), var(), var(), var(), a_lv, b_l
 
 
 def gamma_match(graph: TensorVariable) -> Tuple[TensorVariable, TensorVariable]:
-
     graph_et = etuplize(graph)
     s = unify(graph_et, gamma_pattern)
     if s is False:
@@ -353,7 +351,6 @@ nbinom_sigmoid_dot_pattern = etuple(
 def nbinom_sigmoid_dot_match(
     graph: TensorVariable,
 ) -> Tuple[TensorVariable, TensorVariable, TensorVariable]:
-
     graph_et = etuplize(graph)
     s = unify(graph_et, nbinom_sigmoid_dot_pattern)
     if s is False:
@@ -669,7 +666,6 @@ bernoulli_sigmoid_dot_pattern = etuple(
 def bern_sigmoid_dot_match(
     graph: TensorVariable,
 ) -> Tuple[TensorVariable, TensorVariable]:
-
     graph_et = etuplize(graph)
 
     s = unify(graph_et, bernoulli_sigmoid_dot_pattern)

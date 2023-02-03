@@ -377,7 +377,6 @@ sampler_ir_db.register(
 
 @node_rewriter([Elemwise])
 def inline_SubsumingElemwise(fgraph, node):
-
     op = node.op
 
     if not isinstance(op, SubsumingElemwise):

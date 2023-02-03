@@ -57,7 +57,6 @@ def construct_sampler(
     rvs_without_samplers = set()
 
     for rv in fgraph.outputs:
-
         if rv in obs_rvs_to_values:
             continue
 
@@ -104,7 +103,6 @@ def construct_sampler(
 
     # Use the NUTS sampler for the remaining variables
     if rvs_without_samplers:
-
         to_sample_rvs = {
             rv: posterior_sample_steps[rv] for rv in list(rvs_without_samplers)
         }
