@@ -82,17 +82,12 @@ def invgamma_exponential(invgamma_expr, invexponential_expr):
 
         \begin{equation*}
             \frac{
-                X \sim \operatorname{Gamma^{-1}}\left(1, c\right)
+                X \sim \operatorname{Gamma^{-1}}\left(1, c\right),\quad
+                Y = 1 / X
             }{
-                Y = 1 / X, \quad
                 Y \sim \operatorname{Exp}\left(c\right)
             }
         \end{equation*}
-
-    TODO: This is a particular case of a more general relation between the inverse gamma
-    and the gamma distribution (of which the exponential distribution is a special case).
-    We should implement this more general relation, and the special case separately in the
-    future.
 
     Parameters
     ----------
