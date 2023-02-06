@@ -174,3 +174,8 @@ The current development branch of AeMCMC can be installed from GitHub, also usin
   :target: https://codecov.io/gh/aesara-devs/aemcmc
 .. |Gitter| image:: https://badges.gitter.im/aesara-devs/aesara.svg
   :target: https://gitter.im/aesara-devs/aesara?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge
+
+
+.. image:: https://badges.gitter.im/aesara-devs/aemcmc.svg
+   :alt: Join the chat at https://gitter.im/aesara-devs/aemcmc
+   :target: https://gitter.im/aesara-devs/aemcmc?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge
