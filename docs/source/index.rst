@@ -14,7 +14,7 @@ Features
 - Database of mathematical relations
 - Database of "exact" posterior sampling steps and general-purpose samplers like NUTS
 
-We aim to provide a **user-friendly interface** similar to what you can find in popular PPLs, but with much **faster and more efficient inference**.
+We aim to provide a **user-friendly interface** similar to that of other PPLs, but with much **faster and more efficient inference**.
 
 
 Example
