@@ -5,7 +5,7 @@ from typing import Callable, Dict, Iterable, List, Optional, Sequence, Set, Tupl
 from aeppl.rewriting import MeasurableConversionTracker
 from aesara.compile.builders import OpFromGraph
 from aesara.compile.mode import optdb
-from aesara.graph.basic import Apply, Constant, Variable, clone_replace, io_toposort
+from aesara.graph.basic import Apply, Variable, clone_replace, io_toposort
 from aesara.graph.features import AlreadyThere, Feature
 from aesara.graph.fg import FunctionGraph
 from aesara.graph.op import Op
@@ -18,6 +18,8 @@ from aesara.tensor.rewriting.shape import ShapeFeature
 from aesara.tensor.var import TensorVariable
 from cons.core import _car
 from unification.core import _unify
+
+from aemcmc.utils import remove_constants
 
 SamplerFunctionReturnType = Optional[
     Iterable[Tuple[Variable, Variable, Dict[Variable, Variable]]]
@@ -187,16 +189,12 @@ class SubsumingElemwise(OpFromGraph, Elemwise):
         self.ufunc = None
         self.nfunc = None
 
-        used_inputs = [inp for inp in inputs if not isinstance(inp, Constant)]
-
-        OpFromGraph.__init__(self, used_inputs, outputs, *args, **kwargs)
+        OpFromGraph.__init__(self, inputs, outputs, *args, **kwargs)
 
     def make_node(self, *inputs):
-        # Remove constants
-        used_inputs = [inp for inp in inputs if not isinstance(inp, Constant)]
-
         # TODO: We could make sure that the new constant inputs correspond to
         # the originals...
+        used_inputs = remove_constants(inputs)
 
         # The user interface doesn't expect the shared variable inputs of the
         # inner-graph, but, since `Op.make_node` does (and `Op.__call__`
@@ -360,9 +358,11 @@ def local_elemwise_dimshuffle_subsume(fgraph, node):
 
     assert len(subsumed_inputs) == len(node.inputs)
     new_outputs = node.op.make_node(*subsumed_inputs).outputs
-    new_op = SubsumingElemwise(new_inputs, new_outputs, inline=True)
 
-    new_out = new_op(*new_inputs)
+    used_inputs = remove_constants(new_inputs)
+    new_op = SubsumingElemwise(used_inputs, new_outputs, inline=True)
+
+    new_out = new_op(*used_inputs)
 
     return new_out.owner.outputs
 
