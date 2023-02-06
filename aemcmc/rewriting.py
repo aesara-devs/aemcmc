@@ -20,7 +20,7 @@ from cons.core import _car
 from unification.core import _unify
 
 SamplerFunctionReturnType = Optional[
-    Iterable[Tuple[Variable, Variable, Union[Dict[Variable, Variable]]]]
+    Iterable[Tuple[Variable, Variable, Dict[Variable, Variable]]]
 ]
 SamplerFunctionType = Callable[
     [FunctionGraph, Apply, RandomStream], SamplerFunctionReturnType
