@@ -89,7 +89,7 @@ def normal_regression_posterior(
         \end{align*}
 
     where :math:`X \in \mathbb{R}^{n \times p}`,
-    :math:`\Lambda = \operatorname{diag}\left(\lambda^2_1, \dots, \lambda^2_p)`, and
+    :math:`\Lambda = \operatorname{diag}\left(\lambda^2_1, \dots, \lambda^2_p\right)`, and
     :math:`\Omega^{-1} = \operatorname{diag}\left(\omega_1, \dots, \omega_n\right)`.
 
     The posterior distribution of :math:`\beta` is given by
@@ -705,7 +705,7 @@ def bern_normal_posterior(
         \begin{align*}
             Y &\sim \operatorname{Bern}\left( p \right) \\
             p &= \frac{1}{1 + \exp\left( -X^\top \beta\right)} \\
-            \beta_j &\sim \operatorname{N}\right( 0, \lambda_j^2 \right)
+            \beta_j &\sim \operatorname{N}\left( 0, \lambda_j^2 \right)
         \end{align*}
 
 

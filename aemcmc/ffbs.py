@@ -13,7 +13,7 @@ def ffbs_step(
     srng: RandomStream,
     lower_prec_bound: float = 1e-20,
 ) -> Tuple[TensorVariable, Mapping]:
-    r"""Draw a discrete state sequence sample using forward-filtering backward-sampling (FFBS).
+    r"""Draw a discrete state sequence sample using forward-filtering backward-sampling (FFBS) [fs]_.
 
     FFBS draws samples according to
 
@@ -54,6 +54,9 @@ def ffbs_step(
     -------
     A tuple containing the tensor representing the FFBS sampled states and the
     `Scan`-generated updates.
+
+    References
+    ----------
 
     .. [fs] Sylvia Fruehwirth-Schnatter, "Markov chain Monte Carlo estimation of classical and dynamic switching and mixture models", Journal of the American Statistical Association 96 (2001): 194--209
     .. [nr] Press, William H., Saul A. Teukolsky, William T. Vetterling, and Brian P. Flannery. 2007. "Numerical Recipes 3rd Edition: The Art of Scientific Computing." Cambridge university press.
