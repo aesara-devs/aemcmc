@@ -6,7 +6,6 @@ from aesara.graph.basic import Variable
 from aesara.graph.rewriting.basic import in2out
 from aesara.graph.rewriting.db import LocalGroupDB
 from aesara.graph.rewriting.unify import eval_if_etuple
-from aesara.graph.type import Constant
 from aesara.ifelse import ifelse
 from aesara.tensor.math import Dot
 from aesara.tensor.random import RandomStream
@@ -22,14 +21,10 @@ from aemcmc.dists import (
 )
 from aemcmc.rewriting import sampler_finder, sampler_finder_db
 from aemcmc.types import SamplingStep
+from aemcmc.utils import remove_constants
 
 gibbs_db = LocalGroupDB(apply_all_rewrites=True)
 gibbs_db.name = "gibbs_db"
-
-
-def remove_constants(inputs):
-    inputs_at = [at.as_tensor_variable(x) for x in inputs]
-    return [x for x in inputs_at if not isinstance(x, Constant)]
 
 
 def normal_regression_overdetermined_posterior(
