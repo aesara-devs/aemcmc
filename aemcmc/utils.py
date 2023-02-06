@@ -1,7 +1,8 @@
 from dataclasses import dataclass, field
 from typing import Dict, Optional, Tuple
 
-from aesara.graph.basic import Variable
+from aesara.graph.basic import Constant, Variable
+from aesara.tensor import as_tensor_variable
 from aesara.tensor.var import TensorVariable
 
 
@@ -62,3 +63,13 @@ class ModelInfo:
 
         if len(self.names_to_vars) != len(all_vars):
             raise ValueError("All variables in the model must have unique names")
+
+
+def remove_constants(inputs):
+    res = []
+    for inp in inputs:
+        inp_t = as_tensor_variable(inp)
+        if not isinstance(inp_t, Constant):
+            res.append(inp_t)
+
+    return res
