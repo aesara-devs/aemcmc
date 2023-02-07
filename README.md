@@ -3,6 +3,7 @@
 # AeMCMC
 
 [![Pypi][pypi-badge]][pypi]
+[![Gitter][gitter-badge]][gitter]
 [![Discord][discord-badge]][discord]
 [![Twitter][twitter-badge]][twitter]
 
@@ -11,8 +12,8 @@ AeMCMC automatically constructs samplers for probabilistic models written in [Ae
 *A compiler for Bayesian inference.*
 
 [Features](#features) •
-[Examples](#examples) •
-[Installation](#installation) •
+[Get started](#get-started) •
+[Install](#install) •
 [Get help](#get-help) •
 [Contribute](#contribute)
 
@@ -28,7 +29,7 @@ This project is currently in an alpha state, but the core objectives are as foll
 
 Overall, we would like this project to serve as a hub for community-sourced specialized samplers and facilitate their general use.
 
-## Examples
+## Get started
 
 Using AeMCMC, one can construct sampling steps from a graph containing Aesara
 `RandomVariable`s. AeMCMC analyzes the model graph and possibly rewrites it
@@ -158,7 +159,7 @@ sample_fn = aesara.function(inputs, outputs, updates=sampler.updates)
 
 
 
-## Installation
+## Install
 
 The latest release of AeMCMC can be installed from PyPI using `pip`:
 
@@ -180,13 +181,13 @@ pip install aemcmc-nightly
 
 ## Get help
 
-Report bugs by opening an [issue][issues]. If you have a question regarding the usage of AeMCMC, start a [discussion][discussions]. For real-time feedback or more general chat about AeMCMC use our [Discord server][discord].
+Report bugs by opening an [issue][issues]. If you have a question regarding the usage of AeMCMC, start a [discussion][discussions]. For real-time feedback or more general chat about AeMCMC use our [Discord server][discord] or [Gitter room][gitter].
 
 ## Contribute
 
 AeMCMC welcomes contributions. A good place to start contributing is by looking at the [issues][issues].
 
-If you want to implement a new feature, open a [discussion][discussions] or come chat with us on [Discord][discord].
+If you want to implement a new feature, open a [discussion][discussions] or come chat with us on [Discord][discord] or [Gitter][gitter].
 
 
 [contributors]: https://github.com/aesara-devs/aemcmc/graphs/contributors
@@ -196,6 +197,8 @@ If you want to implement a new feature, open a [discussion][discussions] or come
 [downloads-badge]: https://img.shields.io/pypi/dm/aemcmc?style=flat-square&logo=pypi&logoColor=white&color=8FBCBB
 [discord]: https://discord.gg/h3sjmPYuGJ
 [discord-badge]: https://img.shields.io/discord/1072170173785723041?color=81A1C1&logo=discord&logoColor=white&style=flat-square
+[gitter]: https://gitter.im/aesara-devs/aemcmc
+[gitter-badge]: https://img.shields.io/gitter/room/aesara-devs/aemcmc?color=81A1C1&logo=matrix&logoColor=white&style=flat-square
 [issues]: https://github.com/aesara-devs/aemcmc/issues
 [releases]: https://github.com/aesara-devs/aemcmc/releases
 [twitter]: https://twitter.com/AesaraDevs
