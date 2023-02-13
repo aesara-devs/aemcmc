@@ -98,6 +98,7 @@ AeMCMC installation can happen in a few different ways. You can install AeMCMC w
    :hidden:
 
    get_help
+   Roadmap <https://github.com/orgs/aesara-devs/projects/1>
    examples
 
 .. toctree::
