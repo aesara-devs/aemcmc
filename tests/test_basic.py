@@ -57,6 +57,28 @@ def test_closed_form_posterior_gamma_poisson():
     assert isinstance(p_posterior_step.owner.op, GammaRV)
 
 
+def test_closed_form_posterior_beta_nbinom():
+    srng = RandomStream(0)
+
+    alpha_tt = at.scalar("alpha")
+    beta_tt = at.scalar("beta")
+
+    p_rv = srng.beta(alpha_tt, beta_tt, name="p")
+
+    n_tt = at.scalar("n")
+    Y_rv = srng.negative_binomial(n_tt, p_rv, name="Y")
+
+    y_vv = Y_rv.clone()
+    y_vv.name = "y"
+
+    sampler, initial_values = construct_sampler({Y_rv: y_vv}, srng)
+
+    p_posterior_step = sampler.sample_steps[p_rv]
+    assert len(sampler.parameters) == 0
+    assert len(sampler.stages) == 1
+    assert isinstance(p_posterior_step.owner.op, BetaRV)
+
+
 @pytest.mark.parametrize("size", [1, (1,), (2, 3)])
 def test_nuts_sampler_single_variable(size):
     """We make sure that the NUTS sampler compiles and updates the chains for
