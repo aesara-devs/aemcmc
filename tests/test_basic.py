@@ -123,6 +123,7 @@ def test_nuts_with_closed_form():
     assert beta_rv in sampler.sample_steps
 
 
+@pytest.mark.xfail(reason="An `OpFromGraph` fix is needed to remove extra updates")
 def test_create_gibbs():
     srng = RandomStream(0)
 
