@@ -1,9 +1,14 @@
 from dataclasses import dataclass, field
-from typing import Dict, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, Optional, Tuple
 
-from aesara.graph.basic import Constant, Variable
+from aesara.compile.sharedvalue import SharedVariable
+from aesara.graph.basic import Constant, Variable, ancestors
 from aesara.tensor import as_tensor_variable
+from aesara.tensor.random.type import RandomType
 from aesara.tensor.var import TensorVariable
+
+if TYPE_CHECKING:
+    from aesara.tensor.random.utils import RandomStream
 
 
 @dataclass(frozen=True)
@@ -73,3 +78,52 @@ def remove_constants(inputs):
             res.append(inp_t)
 
     return res
+
+
+def get_rv_updates(
+    srng: "RandomStream", *rvs: TensorVariable
+) -> Dict[SharedVariable, "Variable"]:
+    r"""Get the updates needed to update RNG objects during sampling of `rvs`.
+
+    A search is performed over `rvs` for `SharedVariable`\s with default
+    updates and the updates stored in `srng`.
+
+    Parameters
+    ----------
+    srng:
+        `RandomStream` instance with which the model was defined.
+    rvs:
+        The random variables whose prior distribution we want to sample.
+
+    Returns
+    -------
+    A dict containing the updates needed to sample from the models given by
+    `rvs`.
+
+    """
+    # TODO: It's kind of weird that this is an alist-like data structure; we
+    # should revisit this in `RandomStream`
+    srng_updates = dict(srng.state_updates)
+    rv_updates = {}
+
+    for var in ancestors(rvs):
+        if not isinstance(var, SharedVariable) and not isinstance(var.type, RandomType):
+            continue
+
+        # TODO: Consider making sure the updates correspond to "in-place"
+        # updates of the RNGs for relevant `RandomVariable`s?
+        # More generally, a function like this could be used to determine the
+        # consistency of `RandomVariable` updates in general (e.g. find
+        # bad/disassociated updates).
+        srng_update = srng_updates.get(var)
+
+        if var.default_update:
+            if srng_update:
+                assert srng_update == var.default_update
+
+            # We prefer the default update (for no particular reason)
+            rv_updates[var] = var.default_update
+        elif srng_update:
+            rv_updates[var] = srng_update
+
+    return rv_updates

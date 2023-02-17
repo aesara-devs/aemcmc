@@ -4,6 +4,7 @@ __version__ = _version.get_versions()["version"]
 
 
 from aemcmc.basic import construct_sampler
+from aemcmc.sample import sample_prior
 
 # isort: off
 # Register rewrite databases
