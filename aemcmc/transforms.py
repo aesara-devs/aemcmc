@@ -113,7 +113,7 @@ def invgamma_exponential(invgamma_expr, invexponential_expr):
         size=size_lv,
         dtype=dtype_lv,
     )
-    invexponential_et = etuple(at.true_div, at.as_tensor(1.0), exponential_et)
+    invexponential_et = etuple(at.true_divide, at.as_tensor(1.0), exponential_et)
 
     return lall(
         eq(invgamma_expr, invgamma_et), eq(invexponential_expr, invexponential_et)

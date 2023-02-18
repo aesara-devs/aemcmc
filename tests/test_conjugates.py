@@ -31,7 +31,6 @@ def test_gamma_poisson_conjugate_contract():
     q_lv = var()
     (posterior_expr,) = run(1, q_lv, gamma_poisson_conjugateo(y_vv, Y_rv, q_lv))
     posterior = eval_if_etuple(posterior_expr)
-    aesara.dprint(posterior)
 
     assert isinstance(posterior.owner.op, type(at.random.gamma))
 
