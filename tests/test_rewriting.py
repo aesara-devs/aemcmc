@@ -119,7 +119,7 @@ def test_SubsumingElemwise_constant_inputs():
     srng = at.random.RandomStream(0)
 
     s = at.lscalar("s")
-    # The `1` is the constant input to a `true_div` `Elemwise` that should be
+    # The `1` is the constant input to a `true_divide` `Elemwise` that should be
     # "subsumed"
     Z = srng.exponential(1, size=s, name="Z")
     mu = 1 / Z
