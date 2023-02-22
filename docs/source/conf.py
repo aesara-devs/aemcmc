@@ -61,6 +61,7 @@ html_theme_options = {
     "use_download_button": False,
 }
 html_title = "AeMCMC"
+html_logo = "_static/logo.png"
 
 intersphinx_mapping = {
     "aesara": ("https://aesara.readthedocs.io/en/latest", None),

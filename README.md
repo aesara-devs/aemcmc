@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="./docs/source/_static/logo.png" alt="logo" height="300"></img>
+
 # AeMCMC
 
 [![Pypi][pypi-badge]][pypi]
