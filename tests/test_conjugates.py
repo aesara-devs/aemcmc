@@ -3,6 +3,7 @@ import aesara.tensor as at
 import pytest
 from aesara.graph.rewriting.unify import eval_if_etuple
 from aesara.tensor.random import RandomStream
+from etuples import etuple, etuplize
 from kanren import run
 from unification import var
 
@@ -10,6 +11,7 @@ from aemcmc.conjugates import (
     beta_binomial_conjugateo,
     beta_negative_binomial_conjugateo,
     gamma_poisson_conjugateo,
+    uniform_pareto_conjugateo,
 )
 
 
@@ -157,3 +159,74 @@ def test_beta_negative_binomial_conjugate_expand():
     expanded = eval_if_etuple(expanded_expr)
 
     assert isinstance(expanded.owner.op, type(at.random.beta))
+
+
+def test_uniform_pareto_conjugate_contract():
+    """Produce the closed-form posterior for the uniform observation model with
+    a pareto prior.
+
+    """
+    srng = RandomStream(0)
+
+    xm_tt = at.scalar("xm")
+    k_tt = at.scalar("k")
+    theta_rv = srng.pareto(k_tt, xm_tt, name="theta")
+
+    # zero = at.iscalar("zero")
+    Y_rv = srng.uniform(0, theta_rv)
+    y_vv = Y_rv.clone()
+    y_vv.tag.name = "y"
+
+    q_lv = var()
+    (posterior_expr,) = run(1, q_lv, uniform_pareto_conjugateo(y_vv, Y_rv, q_lv))
+    posterior = eval_if_etuple(posterior_expr)
+
+    assert isinstance(posterior.owner.op, type(at.random.pareto))
+
+    # Build the sampling function and check the results on limiting cases.
+    sample_fn = aesara.function((xm_tt, k_tt, y_vv), posterior)
+    assert sample_fn(1.0, 1000, 1) == pytest.approx(1.0, abs=0.01)  # k = 1000
+    assert sample_fn(1.0, 1, 0) == pytest.approx(0.0, abs=0.01)  # all zeros
+
+
+def test_uniform_pareto_binomial_conjugate_expand():
+    """Expand a contracted beta-binomial observation model."""
+
+    srng = RandomStream(0)
+
+    k_tt = at.scalar("k")
+    y_vv = at.iscalar("y")
+    n_tt = at.scalar("n")
+
+    Y_rv = srng.pareto(at.max(y_vv), k_tt + n_tt)
+    etuplize(Y_rv)
+
+    # e_lv = var()
+    # (expanded_expr,) = run(1, e_lv, uniform_pareto_conjugateo(e_lv, y_vv, Y_rv))
+    # expanded = eval_if_etuple(expanded_expr)
+
+    # assert isinstance(expanded.owner.op, type(at.random.pareto))
+    from aesara.tensor.math import MaxAndArgmax
+    from kanren import eq, run
+    from unification import var
+
+    observed_val = var()
+    axis_lv = var()
+    new_x_et = etuple(etuple(MaxAndArgmax, axis_lv), observed_val)
+
+    k_lv, n_lv = var(), var()
+    new_k_et = etuple(etuplize(at.add), k_lv, n_lv)
+
+    theta_rng_lv = var()
+    theta_size_lv = var()
+    theta_type_idx_lv = var()
+    theta_posterior_et = etuple(
+        etuplize(at.random.pareto),
+        theta_rng_lv,
+        theta_size_lv,
+        theta_type_idx_lv,
+        new_x_et,
+        new_k_et,
+    )
+
+    run(0, (new_x_et, new_k_et), eq(Y_rv, theta_posterior_et))
