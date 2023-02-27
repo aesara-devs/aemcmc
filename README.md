@@ -1,5 +1,9 @@
 <div align="center">
 
+
+<img src="./docs/source/_static/aemcmc_logo.png#gh-light-mode-only" alt="AeMCMC Logo Dark" width=400></img>
+<img src="./docs/source/_static/aemcmc_logo_dark.png#gh-dark-mode-only" alt="AeMCMC Logo Dark" width=400></img>
+
 # AeMCMC
 
 [![Pypi][pypi-badge]][pypi]
