@@ -8,6 +8,7 @@ from kanren import run
 from unification import var
 
 from aemcmc.conjugates import (
+    beta_bernoulli_conjugateo,
     beta_binomial_conjugateo,
     beta_negative_binomial_conjugateo,
     gamma_poisson_conjugateo,
@@ -156,6 +157,54 @@ def test_beta_negative_binomial_conjugate_expand():
 
     e_lv = var()
     (expanded_expr,) = run(1, e_lv, beta_negative_binomial_conjugateo(e_lv, y_vv, Y_rv))
+    expanded = eval_if_etuple(expanded_expr)
+
+    assert isinstance(expanded.owner.op, type(at.random.beta))
+
+
+def test_beta_bernoulli_conjugate_contract():
+    """Produce the closed-form posterior for the binomial observation model with
+    a beta prior.
+
+    """
+    srng = RandomStream(0)
+
+    alpha_tt = at.scalar("alpha")
+    beta_tt = at.scalar("beta")
+    p_rv = srng.beta(alpha_tt, beta_tt, name="p")
+
+    Y_rv = srng.bernoulli(p_rv)
+    y_vv = Y_rv.clone()
+    y_vv.tag.name = "y"
+
+    q_lv = var()
+    (posterior_expr,) = run(1, q_lv, beta_bernoulli_conjugateo(y_vv, Y_rv, q_lv))
+    posterior = eval_if_etuple(posterior_expr)
+
+    assert isinstance(posterior.owner.op, type(at.random.beta))
+
+    # Build the sampling function and check the results on limiting cases.
+    sample_fn = aesara.function((alpha_tt, beta_tt, y_vv), posterior)
+    assert sample_fn(1.0, 1.0, 1) == pytest.approx(1.0, abs=0.3)  # only successes
+    assert sample_fn(1.0, 1.0, 0) == pytest.approx(0.0, abs=0.3)  # no success
+
+
+@pytest.mark.xfail(
+    reason="Op.__call__ does not dispatch to Op.make_node for some RandomVariable and etuple evaluation returns an error"
+)
+def test_beta_bernoulli_conjugate_expand():
+    """Expand a contracted beta-binomial observation model."""
+
+    srng = RandomStream(0)
+
+    alpha_tt = at.scalar("alpha")
+    beta_tt = at.scalar("beta")
+    y_vv = at.iscalar("y")
+    n_tt = at.iscalar("n")
+    Y_rv = srng.beta(alpha_tt + y_vv, beta_tt + n_tt - y_vv)
+
+    e_lv = var()
+    (expanded_expr,) = run(1, e_lv, beta_bernoulli_conjugateo(e_lv, y_vv, Y_rv))
     expanded = eval_if_etuple(expanded_expr)
 
     assert isinstance(expanded.owner.op, type(at.random.beta))
