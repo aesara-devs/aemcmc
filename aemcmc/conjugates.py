@@ -1,5 +1,5 @@
 import aesara.tensor as at
-from aesara.graph.rewriting.basic import in2out, node_rewriter
+from aesara.graph.rewriting.basic import in2out
 from aesara.graph.rewriting.db import LocalGroupDB
 from aesara.graph.rewriting.unify import eval_if_etuple
 from aesara.tensor.random.basic import BinomialRV, NegBinomialRV, PoissonRV
@@ -7,7 +7,7 @@ from etuples import etuple, etuplize
 from kanren import eq, lall, run
 from unification import var
 
-from aemcmc.rewriting import sampler_finder_db
+from aemcmc.rewriting import sampler_finder, sampler_finder_db
 
 
 def gamma_poisson_conjugateo(observed_val, observed_rv_expr, posterior_expr):
@@ -63,15 +63,9 @@ def gamma_poisson_conjugateo(observed_val, observed_rv_expr, posterior_expr):
     )
 
 
-@node_rewriter([PoissonRV])
-def local_gamma_poisson_posterior(fgraph, node):
-    sampler_mappings = getattr(fgraph, "sampler_mappings", None)
-
+@sampler_finder([PoissonRV])
+def local_gamma_poisson_posterior(fgraph, node, srng):
     rv_var = node.outputs[1]
-    key = ("local_gamma_poisson_posterior", rv_var)
-
-    if sampler_mappings is None or key in sampler_mappings.rvs_seen:
-        return None  # pragma: no cover
 
     q = var()
 
@@ -86,12 +80,7 @@ def local_gamma_poisson_posterior(fgraph, node):
     gamma_rv = rv_et[-1].evaled_obj
     gamma_posterior = eval_if_etuple(res)
 
-    sampler_mappings.rvs_to_samplers.setdefault(gamma_rv, []).append(
-        ("local_gamma_poisson_posterior", gamma_posterior, None)
-    )
-    sampler_mappings.rvs_seen.add(key)
-
-    return rv_var.owner.outputs
+    return [(gamma_rv, gamma_posterior, None)]
 
 
 def beta_binomial_conjugateo(observed_val, observed_rv_expr, posterior_expr):
@@ -150,15 +139,9 @@ def beta_binomial_conjugateo(observed_val, observed_rv_expr, posterior_expr):
     )
 
 
-@node_rewriter([BinomialRV])
-def local_beta_binomial_posterior(fgraph, node):
-    sampler_mappings = getattr(fgraph, "sampler_mappings", None)
-
+@sampler_finder([BinomialRV])
+def local_beta_binomial_posterior(fgraph, node, srng):
     rv_var = node.outputs[1]
-    key = ("local_beta_binomial_posterior", rv_var)
-
-    if sampler_mappings is None or key in sampler_mappings.rvs_seen:
-        return None  # pragma: no cover
 
     q = var()
 
@@ -173,12 +156,7 @@ def local_beta_binomial_posterior(fgraph, node):
     beta_rv = rv_et[-1].evaled_obj
     beta_posterior = eval_if_etuple(res)
 
-    sampler_mappings.rvs_to_samplers.setdefault(beta_rv, []).append(
-        ("local_beta_binomial_posterior", beta_posterior, None)
-    )
-    sampler_mappings.rvs_seen.add(key)
-
-    return rv_var.owner.outputs
+    return [(beta_rv, beta_posterior, None)]
 
 
 def beta_negative_binomial_conjugateo(observed_val, observed_rv_expr, posterior_expr):
@@ -237,15 +215,9 @@ def beta_negative_binomial_conjugateo(observed_val, observed_rv_expr, posterior_
     )
 
 
-@node_rewriter([NegBinomialRV])
-def local_beta_negative_binomial_posterior(fgraph, node):
-    sampler_mappings = getattr(fgraph, "sampler_mappings", None)
-
+@sampler_finder([NegBinomialRV])
+def local_beta_negative_binomial_posterior(fgraph, node, srng):
     rv_var = node.outputs[1]
-    key = ("local_beta_negative_binomial_posterior", rv_var)
-
-    if sampler_mappings is None or key in sampler_mappings.rvs_seen:
-        return None  # pragma: no cover
 
     q = var()
 
@@ -260,12 +232,7 @@ def local_beta_negative_binomial_posterior(fgraph, node):
     beta_rv = rv_et[-1].evaled_obj
     beta_posterior = eval_if_etuple(res)
 
-    sampler_mappings.rvs_to_samplers.setdefault(beta_rv, []).append(
-        ("local_beta_negative_binomial_posterior", beta_posterior, None)
-    )
-    sampler_mappings.rvs_seen.add(key)
-
-    return rv_var.owner.outputs
+    return [(beta_rv, beta_posterior, None)]
 
 
 conjugates_db = LocalGroupDB(apply_all_rewrites=True)
