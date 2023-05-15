@@ -14,6 +14,7 @@ from aemcmc.gibbs import (
     NBRegressionGibbsKernel,
 )
 from aemcmc.rewriting import SubsumingElemwise
+from tests.utils import assert_consistent_rng_updates
 
 
 def test_closed_form_posterior_beta_binomial():
@@ -35,6 +36,7 @@ def test_closed_form_posterior_beta_binomial():
     assert len(sampler.parameters) == 0
     assert len(sampler.stages) == 1
     assert isinstance(p_posterior_step.owner.op, BetaRV)
+    assert_consistent_rng_updates(p_posterior_step)
 
 
 def test_closed_form_posterior_gamma_poisson():
@@ -55,6 +57,7 @@ def test_closed_form_posterior_gamma_poisson():
     assert len(sampler.parameters) == 0
     assert len(sampler.stages) == 1
     assert isinstance(p_posterior_step.owner.op, GammaRV)
+    assert_consistent_rng_updates(p_posterior_step)
 
 
 def test_closed_form_posterior_beta_nbinom():
@@ -77,6 +80,7 @@ def test_closed_form_posterior_beta_nbinom():
     assert len(sampler.parameters) == 0
     assert len(sampler.stages) == 1
     assert isinstance(p_posterior_step.owner.op, BetaRV)
+    assert_consistent_rng_updates(p_posterior_step)
 
 
 @pytest.mark.parametrize("size", [1, (1,), (2, 3)])
@@ -98,6 +102,7 @@ def test_nuts_sampler_single_variable(size):
     assert len(sampler.stages) == 1
 
     tau_post_step = sampler.sample_steps[tau_rv]
+    assert_consistent_rng_updates(tau_post_step)
     nuts = tau_post_step.owner.op
     assert y_vv in graph_inputs([tau_post_step])
     assert len(sampler.parameters[nuts]) == 2
@@ -137,10 +142,11 @@ def test_nuts_with_closed_form():
 
     assert len(sampler.stages) == 2
 
-    p_posterior_step = sampler.sample_steps[l_rv]
-    assert y_vv in graph_inputs([p_posterior_step])
+    l_posterior_step = sampler.sample_steps[l_rv]
+    assert_consistent_rng_updates(l_posterior_step)
+    assert y_vv in graph_inputs([l_posterior_step])
     assert len(initial_values) == 2
-    assert isinstance(p_posterior_step.owner.op, GammaRV)
+    assert isinstance(l_posterior_step.owner.op, GammaRV)
 
     assert beta_rv in sampler.sample_steps
 
@@ -178,15 +184,19 @@ def test_create_gibbs():
     tau_post_step = sampler.sample_steps[tau_rv]
     # These are *very* rough checks of the resulting graphs
     assert isinstance(tau_post_step.owner.op, HorseshoeGibbsKernel)
+    assert_consistent_rng_updates(tau_post_step)
 
     lmbda_post_step = sampler.sample_steps[lmbda_rv]
     assert isinstance(lmbda_post_step.owner.op, HorseshoeGibbsKernel)
+    assert_consistent_rng_updates(lmbda_post_step)
 
     beta_post_step = sampler.sample_steps[beta_rv]
     assert isinstance(beta_post_step.owner.op, NBRegressionGibbsKernel)
+    assert_consistent_rng_updates(beta_post_step)
 
     h_post_step = sampler.sample_steps[h_rv]
     assert isinstance(h_post_step.owner.op, DispersionGibbsKernel)
+    assert_consistent_rng_updates(h_post_step)
 
     inputs = [X, a, b, y_vv] + [initial_values[rv] for rv in sample_vars]
     outputs = [sampler.sample_steps[rv] for rv in sample_vars]
