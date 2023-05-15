@@ -11,8 +11,7 @@ from aemcmc.rewriting import sampler_finder, sampler_finder_db
 
 
 def gamma_poisson_conjugateo(observed_rv_expr, posterior_expr):
-    r"""Produce a goal that represents the application of Bayes theorem
-    for a beta prior with a binomial observation model.
+    r"""Relation for the conjugate posterior of a gamma prior with a Poisson observation model.
 
     .. math::
 
@@ -82,8 +81,7 @@ def local_gamma_poisson_posterior(fgraph, node, srng):
 
 
 def beta_binomial_conjugateo(observed_rv_expr, posterior_expr):
-    r"""Produce a goal that represents the application of Bayes theorem
-    for a beta prior with a binomial observation model.
+    r"""Relation for the conjugate posterior of a beta prior with a binomial observation model.
 
     .. math::
 
@@ -156,8 +154,7 @@ def local_beta_binomial_posterior(fgraph, node, srng):
 
 
 def beta_negative_binomial_conjugateo(observed_rv_expr, posterior_expr):
-    r"""Produce a goal that represents the application of Bayes theorem
-    for a beta prior with a negative binomial observation model.
+    r"""Relation for the conjugate posterior of a beta prior with a negative binomial observation model.
 
     .. math::
 
@@ -167,7 +164,8 @@ def beta_negative_binomial_conjugateo(observed_rv_expr, posterior_expr):
         }{
             \left(p \mid Y=y\right) \sim \operatorname{Beta}\left(\alpha + \sum^{n}_{i=1} y_i, \beta + k n\right)
         }
-        where :math:`k` is the number of successes before experiment ended.
+
+    where :math:`k` is the number of successes before the experiment ended.
 
 
     Parameters
