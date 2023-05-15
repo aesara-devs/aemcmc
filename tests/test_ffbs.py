@@ -6,6 +6,7 @@ import pytest
 import scipy.stats as sp
 
 from aemcmc.ffbs import ffbs_step
+from tests.utils import assert_consistent_rng_updates
 
 
 @pytest.mark.parametrize("first_is_nonzero", [True, False])
@@ -24,6 +25,9 @@ def test_ffbs_one_state_likelihood(first_is_nonzero):
 
     srng = atr.RandomStream(seed=2032)
     step_at, updates = ffbs_step(gamma_0, Gammas, log_lik, srng)
+
+    assert_consistent_rng_updates(step_at)
+
     step_fn = aesara.function([], step_at, updates=updates)
     res = step_fn()
 
@@ -55,6 +59,9 @@ def test_ffbs_poisson_states():
 
     srng = atr.RandomStream(seed=2032)
     step_at, updates = ffbs_step(gamma_0, Gammas, log_lik, srng)
+
+    assert_consistent_rng_updates(step_at)
+
     step_fn = aesara.function([], step_at, updates=updates)
     res = step_fn()
 
@@ -82,6 +89,9 @@ def test_ffbs_strict_alternating_transitions():
 
     srng = atr.RandomStream(seed=2032)
     step_at, updates = ffbs_step(gamma_0, Gammas, log_lik, srng)
+
+    assert_consistent_rng_updates(step_at)
+
     step_fn = aesara.function([], step_at, updates=updates)
     res = step_fn()
 

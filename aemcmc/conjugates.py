@@ -1,3 +1,6 @@
+from functools import partial
+from typing import TYPE_CHECKING
+
 import aesara.tensor as at
 from aesara.graph.rewriting.basic import in2out
 from aesara.graph.rewriting.db import LocalGroupDB
@@ -9,8 +12,11 @@ from unification import var
 
 from aemcmc.rewriting import sampler_finder, sampler_finder_db
 
+if TYPE_CHECKING:
+    from aesara.tensor.random.utils import RandomStream
 
-def gamma_poisson_conjugateo(observed_rv_expr, posterior_expr):
+
+def gamma_poisson_conjugateo(srng: "RandomStream", observed_rv_expr, posterior_expr):
     r"""Relation for the conjugate posterior of a gamma prior with a Poisson observation model.
 
     .. math::
@@ -25,6 +31,8 @@ def gamma_poisson_conjugateo(observed_rv_expr, posterior_expr):
 
     Parameters
     ----------
+    srng
+        The `RandomStream` used to generate the posterior variates.
     observed_rv_expr
         An expression that represents the observed variable.
     posterior_exp
@@ -46,10 +54,9 @@ def gamma_poisson_conjugateo(observed_rv_expr, posterior_expr):
     new_alpha_et = etuple(etuplize(at.add), alpha_lv, observed_rv_expr)
     new_beta_et = etuple(etuplize(at.add), beta_lv, 1)
     z_posterior_et = etuple(
-        etuplize(at.random.gamma),
+        partial(srng.gen, at.random.gamma),
         new_alpha_et,
         new_beta_et,
-        rng=z_rng_lv,
         size=z_size_lv,
         dtype=z_type_idx_lv,
     )
@@ -68,7 +75,7 @@ def local_gamma_poisson_posterior(fgraph, node, srng):
 
     rv_et = etuplize(rv_var)
 
-    res = run(None, q, gamma_poisson_conjugateo(rv_et, q))
+    res = run(None, q, partial(gamma_poisson_conjugateo, srng)(rv_et, q))
     res = next(res, None)
 
     if res is None:
@@ -80,7 +87,7 @@ def local_gamma_poisson_posterior(fgraph, node, srng):
     return [(gamma_rv, gamma_posterior, None)]
 
 
-def beta_binomial_conjugateo(observed_rv_expr, posterior_expr):
+def beta_binomial_conjugateo(srng: "RandomStream", observed_rv_expr, posterior_expr):
     r"""Relation for the conjugate posterior of a beta prior with a binomial observation model.
 
     .. math::
@@ -95,6 +102,8 @@ def beta_binomial_conjugateo(observed_rv_expr, posterior_expr):
 
     Parameters
     ----------
+    srng
+        The `RandomStream` used to generate the posterior variates.
     observed_rv_expr
         An expression that represents the observed variable.
     posterior_exp
@@ -119,10 +128,9 @@ def beta_binomial_conjugateo(observed_rv_expr, posterior_expr):
         etuplize(at.sub), etuple(etuplize(at.add), beta_lv, n_lv), observed_rv_expr
     )
     p_posterior_et = etuple(
-        etuplize(at.random.beta),
+        partial(srng.gen, at.random.beta),
         new_alpha_et,
         new_beta_et,
-        rng=p_rng_lv,
         size=p_size_lv,
         dtype=p_type_idx_lv,
     )
@@ -141,7 +149,7 @@ def local_beta_binomial_posterior(fgraph, node, srng):
 
     rv_et = etuplize(rv_var)
 
-    res = run(None, q, beta_binomial_conjugateo(rv_et, q))
+    res = run(None, q, partial(beta_binomial_conjugateo, srng)(rv_et, q))
     res = next(res, None)
 
     if res is None:
@@ -153,7 +161,9 @@ def local_beta_binomial_posterior(fgraph, node, srng):
     return [(beta_rv, beta_posterior, None)]
 
 
-def beta_negative_binomial_conjugateo(observed_rv_expr, posterior_expr):
+def beta_negative_binomial_conjugateo(
+    srng: "RandomStream", observed_rv_expr, posterior_expr
+):
     r"""Relation for the conjugate posterior of a beta prior with a negative binomial observation model.
 
     .. math::
@@ -170,6 +180,8 @@ def beta_negative_binomial_conjugateo(observed_rv_expr, posterior_expr):
 
     Parameters
     ----------
+    srng
+        The `RandomStream` used to generate the posterior variates.
     observed_rv_expr
         An expression that represents the observed variable.
     posterior_expr
@@ -193,10 +205,9 @@ def beta_negative_binomial_conjugateo(observed_rv_expr, posterior_expr):
     new_alpha_et = etuple(etuplize(at.add), alpha_lv, observed_rv_expr)
     new_beta_et = etuple(etuplize(at.add), beta_lv, n_lv)
     p_posterior_et = etuple(
-        etuplize(at.random.beta),
+        partial(srng.gen, at.random.beta),
         new_alpha_et,
         new_beta_et,
-        rng=p_rng_lv,
         size=p_size_lv,
         dtype=p_type_idx_lv,
     )
@@ -215,7 +226,7 @@ def local_beta_negative_binomial_posterior(fgraph, node, srng):
 
     rv_et = etuplize(rv_var)
 
-    res = run(None, q, beta_negative_binomial_conjugateo(rv_et, q))
+    res = run(None, q, partial(beta_negative_binomial_conjugateo, srng)(rv_et, q))
     res = next(res, None)
 
     if res is None:

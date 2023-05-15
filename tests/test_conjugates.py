@@ -23,7 +23,7 @@ def test_gamma_poisson_conjugate_contract():
     Y_rv = srng.poisson(z_rv)
 
     q_lv = var()
-    (posterior_expr,) = run(1, q_lv, gamma_poisson_conjugateo(Y_rv, q_lv))
+    (posterior_expr,) = run(1, q_lv, gamma_poisson_conjugateo(srng, Y_rv, q_lv))
     posterior = posterior_expr.evaled_obj
 
     assert isinstance(posterior.owner.op, type(at.random.gamma))
@@ -44,7 +44,7 @@ def test_gamma_poisson_conjugate_expand():
     Y_et = etuplize(Y_rv)
 
     e_lv = var()
-    (expanded_expr,) = run(1, e_lv, gamma_poisson_conjugateo(e_lv, Y_et))
+    (expanded_expr,) = run(1, e_lv, gamma_poisson_conjugateo(srng, e_lv, Y_et))
     expanded = expanded_expr.evaled_obj
 
     assert isinstance(expanded.owner.op, type(at.random.gamma))
@@ -62,7 +62,7 @@ def test_beta_binomial_conjugate_contract():
     Y_rv = srng.binomial(n_tt, p_rv)
 
     q_lv = var()
-    (posterior_expr,) = run(1, q_lv, beta_binomial_conjugateo(Y_rv, q_lv))
+    (posterior_expr,) = run(1, q_lv, beta_binomial_conjugateo(srng, Y_rv, q_lv))
     posterior = posterior_expr.evaled_obj
 
     assert isinstance(posterior.owner.op, type(at.random.beta))
@@ -90,7 +90,7 @@ def test_beta_binomial_conjugate_expand():
     Y_rv = srng.beta(alpha_tt + y_vv, beta_tt + n_tt - y_vv)
 
     e_lv = var()
-    (expanded_expr,) = run(1, e_lv, beta_binomial_conjugateo(e_lv, Y_rv))
+    (expanded_expr,) = run(1, e_lv, beta_binomial_conjugateo(srng, e_lv, Y_rv))
     expanded = expanded_expr.evaled_obj
 
     assert isinstance(expanded.owner.op, type(at.random.beta))
@@ -108,7 +108,9 @@ def test_beta_negative_binomial_conjugate_contract():
     Y_rv = srng.negative_binomial(n_tt, p_rv)
 
     q_lv = var()
-    (posterior_expr,) = run(1, q_lv, beta_negative_binomial_conjugateo(Y_rv, q_lv))
+    (posterior_expr,) = run(
+        1, q_lv, beta_negative_binomial_conjugateo(srng, Y_rv, q_lv)
+    )
     posterior = posterior_expr.evaled_obj
 
     assert isinstance(posterior.owner.op, type(at.random.beta))
@@ -136,7 +138,7 @@ def test_beta_negative_binomial_conjugate_expand():
     Y_rv = srng.beta(alpha_tt + y_vv, beta_tt + n_tt)
 
     e_lv = var()
-    (expanded_expr,) = run(1, e_lv, beta_negative_binomial_conjugateo(e_lv, Y_rv))
+    (expanded_expr,) = run(1, e_lv, beta_negative_binomial_conjugateo(srng, e_lv, Y_rv))
     expanded = expanded_expr
 
     assert isinstance(expanded.owner.op, type(at.random.beta))
