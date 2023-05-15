@@ -10,7 +10,7 @@ from unification import var
 from aemcmc.rewriting import sampler_finder, sampler_finder_db
 
 
-def gamma_poisson_conjugateo(observed_val, observed_rv_expr, posterior_expr):
+def gamma_poisson_conjugateo(observed_rv_expr, posterior_expr):
     r"""Produce a goal that represents the application of Bayes theorem
     for a beta prior with a binomial observation model.
 
@@ -26,8 +26,6 @@ def gamma_poisson_conjugateo(observed_val, observed_rv_expr, posterior_expr):
 
     Parameters
     ----------
-    observed_val
-        The observed value.
     observed_rv_expr
         An expression that represents the observed variable.
     posterior_exp
@@ -46,7 +44,7 @@ def gamma_poisson_conjugateo(observed_val, observed_rv_expr, posterior_expr):
     Y_et = etuple(etuplize(at.random.poisson), var(), var(), var(), z_et)
 
     # Posterior distribution for p
-    new_alpha_et = etuple(etuplize(at.add), alpha_lv, observed_val)
+    new_alpha_et = etuple(etuplize(at.add), alpha_lv, observed_rv_expr)
     new_beta_et = etuple(etuplize(at.add), beta_lv, 1)
     z_posterior_et = etuple(
         etuplize(at.random.gamma),
@@ -71,7 +69,7 @@ def local_gamma_poisson_posterior(fgraph, node, srng):
 
     rv_et = etuplize(rv_var)
 
-    res = run(None, q, gamma_poisson_conjugateo(rv_var, rv_et, q))
+    res = run(None, q, gamma_poisson_conjugateo(rv_et, q))
     res = next(res, None)
 
     if res is None:
@@ -83,7 +81,7 @@ def local_gamma_poisson_posterior(fgraph, node, srng):
     return [(gamma_rv, gamma_posterior, None)]
 
 
-def beta_binomial_conjugateo(observed_val, observed_rv_expr, posterior_expr):
+def beta_binomial_conjugateo(observed_rv_expr, posterior_expr):
     r"""Produce a goal that represents the application of Bayes theorem
     for a beta prior with a binomial observation model.
 
@@ -99,8 +97,6 @@ def beta_binomial_conjugateo(observed_val, observed_rv_expr, posterior_expr):
 
     Parameters
     ----------
-    observed_val
-        The observed value.
     observed_rv_expr
         An expression that represents the observed variable.
     posterior_exp
@@ -120,9 +116,9 @@ def beta_binomial_conjugateo(observed_val, observed_rv_expr, posterior_expr):
     Y_et = etuple(etuplize(at.random.binomial), var(), var(), var(), n_lv, p_et)
 
     # Posterior distribution for p
-    new_alpha_et = etuple(etuplize(at.add), alpha_lv, observed_val)
+    new_alpha_et = etuple(etuplize(at.add), alpha_lv, observed_rv_expr)
     new_beta_et = etuple(
-        etuplize(at.sub), etuple(etuplize(at.add), beta_lv, n_lv), observed_val
+        etuplize(at.sub), etuple(etuplize(at.add), beta_lv, n_lv), observed_rv_expr
     )
     p_posterior_et = etuple(
         etuplize(at.random.beta),
@@ -147,7 +143,7 @@ def local_beta_binomial_posterior(fgraph, node, srng):
 
     rv_et = etuplize(rv_var)
 
-    res = run(None, q, beta_binomial_conjugateo(rv_var, rv_et, q))
+    res = run(None, q, beta_binomial_conjugateo(rv_et, q))
     res = next(res, None)
 
     if res is None:
@@ -159,7 +155,7 @@ def local_beta_binomial_posterior(fgraph, node, srng):
     return [(beta_rv, beta_posterior, None)]
 
 
-def beta_negative_binomial_conjugateo(observed_val, observed_rv_expr, posterior_expr):
+def beta_negative_binomial_conjugateo(observed_rv_expr, posterior_expr):
     r"""Produce a goal that represents the application of Bayes theorem
     for a beta prior with a negative binomial observation model.
 
@@ -176,11 +172,9 @@ def beta_negative_binomial_conjugateo(observed_val, observed_rv_expr, posterior_
 
     Parameters
     ----------
-    observed_val
-        The observed value.
     observed_rv_expr
         An expression that represents the observed variable.
-    posterior_exp
+    posterior_expr
         An expression that represents the posterior distribution of the latent
         variable.
 
@@ -198,7 +192,7 @@ def beta_negative_binomial_conjugateo(observed_val, observed_rv_expr, posterior_
         etuplize(at.random.negative_binomial), var(), var(), var(), n_lv, p_et
     )
 
-    new_alpha_et = etuple(etuplize(at.add), alpha_lv, observed_val)
+    new_alpha_et = etuple(etuplize(at.add), alpha_lv, observed_rv_expr)
     new_beta_et = etuple(etuplize(at.add), beta_lv, n_lv)
     p_posterior_et = etuple(
         etuplize(at.random.beta),
@@ -223,7 +217,7 @@ def local_beta_negative_binomial_posterior(fgraph, node, srng):
 
     rv_et = etuplize(rv_var)
 
-    res = run(None, q, beta_negative_binomial_conjugateo(rv_var, rv_et, q))
+    res = run(None, q, beta_negative_binomial_conjugateo(rv_et, q))
     res = next(res, None)
 
     if res is None:
