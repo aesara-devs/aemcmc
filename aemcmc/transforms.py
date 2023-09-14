@@ -36,10 +36,10 @@ def location_scale_transform(in_expr, out_expr):
     Parameters
     ----------
     in_expr
-        An expression that represents a random variable whose distribution belongs
+        an expression that represents a random variable whose distribution belongs
         to the location-scale family.
     out_expr
-        An expression for the non-centered representation of this random variable.
+        an expression for the non-centered representation of this random variable.
 
     """
 
