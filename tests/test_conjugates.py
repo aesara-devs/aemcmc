@@ -9,6 +9,7 @@ from unification import var
 from aemcmc.conjugates import (
     beta_binomial_conjugateo,
     beta_negative_binomial_conjugateo,
+    gamma_exponential_conjugateo,
     gamma_poisson_conjugateo,
 )
 
@@ -142,3 +143,39 @@ def test_beta_negative_binomial_conjugate_expand():
     expanded = expanded_expr
 
     assert isinstance(expanded.owner.op, type(at.random.beta))
+
+
+def test_gamma_exponential_conjugate_contract():
+    """Produce the closed-form posterior for the exponential observation model with a gamma prior."""
+    srng = RandomStream(0)
+
+    alpha_tt = at.scalar("alpha")
+    beta_tt = at.scalar("beta")
+    lam_rv = srng.gamma(alpha_tt, beta_tt)
+    Y_rv = srng.exponential(lam_rv)
+
+    q_lv = var()
+    (posterior_expr,) = run(1, q_lv, gamma_exponential_conjugateo(srng, Y_rv, q_lv))
+    posterior = posterior_expr.evaled_obj
+
+    assert isinstance(posterior.owner.op, type(at.random.gamma))
+
+
+@pytest.mark.xfail(
+    reason="Op.__call__ does not dispatch to Op.make_node for some RandomVariable and etuple evaluation returns an error"
+)
+def test_gamma_exponential_conjugate_expand():
+    """Expand a contracted gamma-exponential observation model."""
+
+    srng = RandomStream(0)
+
+    alpha_tt = at.scalar("alpha")
+    beta_tt = at.scalar("beta")
+    y_vv = at.iscalar("y")
+    Y_rv = srng.gamma(alpha_tt + y_vv, beta_tt + 1)
+
+    e_lv = var()
+    (expanded_expr,) = run(1, e_lv, gamma_exponential_conjugateo(srng, e_lv, Y_rv))
+    expanded = expanded_expr.evaled_obj
+
+    assert isinstance(expanded.owner.op, type(at.random.gamma))

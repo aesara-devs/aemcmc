@@ -5,7 +5,12 @@ import aesara.tensor as at
 from aesara.graph.rewriting.basic import in2out
 from aesara.graph.rewriting.db import LocalGroupDB
 from aesara.graph.rewriting.unify import eval_if_etuple
-from aesara.tensor.random.basic import BinomialRV, NegBinomialRV, PoissonRV
+from aesara.tensor.random.basic import (
+    BinomialRV,
+    ExponentialRV,
+    NegBinomialRV,
+    PoissonRV,
+)
 from etuples import etuple, etuplize
 from kanren import eq, lall, run
 from unification import var
@@ -238,6 +243,85 @@ def local_beta_negative_binomial_posterior(fgraph, node, srng):
     return [(beta_rv, beta_posterior, None)]
 
 
+def gamma_exponential_conjugateo(
+    srng: "RandomStream", observed_rv_expr, posterior_expr
+):
+    r"""
+    Relation for the conjugate posterior of a gamma prior with an exponential observation model.
+
+    .. math::
+
+        \frac{
+            Y \sim \operatorname{Exp}\left(\lambda\right), \quad
+            \lambda \sim \operatorname{Gamma}\left(\alpha, \beta\right)
+        }{
+            \left(\lambda|Y=y\right) \sim \operatorname{Gamma}\left(\alpha+1, \beta+y\right)
+        }
+
+    Parameters
+    ----------
+    srng
+        The `RandomStream` used to generate the posterior variates.
+    observed_rv_expr
+        An expression that represents the observed variable.
+    posterior_exp
+        An expression that represents the posterior distribution of the latent
+        variable.
+
+    """
+    # Gamma-exponential observation model
+    alpha_lv, beta_lv = var(), var()
+    lam_rng_lv = var()
+    lam_size_lv = var()
+    lam_type_idx_lv = var()
+    lam_et = etuple(
+        etuplize(at.random.gamma),
+        lam_rng_lv,
+        lam_size_lv,
+        lam_type_idx_lv,
+        alpha_lv,
+        beta_lv,
+    )
+    Y_et = etuple(etuplize(at.random.exponential), var(), var(), var(), lam_et)
+
+    # Posterior distribution for lambda
+    new_alpha_et = etuple(etuplize(at.add), alpha_lv, 1)
+    new_beta_et = etuple(etuplize(at.add), beta_lv, observed_rv_expr)
+
+    lam_posterior_et = etuple(
+        partial(srng.gen, at.random.gamma),
+        new_alpha_et,
+        new_beta_et,
+        size=lam_size_lv,
+        dtype=lam_type_idx_lv,
+    )
+
+    return lall(
+        eq(observed_rv_expr, Y_et),
+        eq(posterior_expr, lam_posterior_et),
+    )
+
+
+@sampler_finder([ExponentialRV])
+def local_gamma_exponential_posterior(fgraph, node, srng):
+    rv_var = node.outputs[1]
+
+    q = var()
+
+    rv_et = etuplize(rv_var)
+
+    res = run(None, q, partial(beta_negative_binomial_conjugateo, srng)(rv_et, q))
+    res = next(res, None)
+
+    if res is None:
+        return None  # pragma: no cover
+
+    lam_rv = rv_et[-1].evaled_obj
+    lam_posterior = eval_if_etuple(res)
+
+    return [(lam_rv, lam_posterior, None)]
+
+
 conjugates_db = LocalGroupDB(apply_all_rewrites=True)
 conjugates_db.name = "conjugates_db"
 conjugates_db.register("beta_binomial", local_beta_binomial_posterior, "basic")
@@ -245,6 +329,7 @@ conjugates_db.register("gamma_poisson", local_gamma_poisson_posterior, "basic")
 conjugates_db.register(
     "negative_binomial", local_beta_negative_binomial_posterior, "basic"
 )
+conjugates_db.register("gamma_exponential", local_gamma_exponential_posterior, "basic")
 
 
 sampler_finder_db.register(
